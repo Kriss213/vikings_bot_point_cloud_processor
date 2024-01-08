@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<launch>
+
+    <arg name='use_sim_time' default='false'/>
+    <arg name='robot_name' default='vikings_bot_1'/>
+
+    <node pkg='point_cloud_processor' exec='point_cloud_processor.py' name='$(var robot_name)/pc_processor'>
+        <param name='robot_name' value='$(var robot_name)'/>
+        <param name='use_sim_time' value='$(var use_sim_time)'/>
+    </node>
+
+
+</launch>
