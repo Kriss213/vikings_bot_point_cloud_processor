@@ -11,7 +11,6 @@ find_package(ament_cmake_python REQUIRED)
 find_package(rclpy REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
-find_package(point_cloud_processor REQUIRED)
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
