@@ -9,7 +9,7 @@ def generate_launch_description():
     
     use_sim_time_val = LaunchConfiguration('use_sim_time', default=False)
 
-    robot_name_val = LaunchConfiguration('robot_name', default='vikings_bot_1')
+    robot_name_val = LaunchConfiguration('robot_name', default='default_robot_name')
     
     return LaunchDescription([
         Node(

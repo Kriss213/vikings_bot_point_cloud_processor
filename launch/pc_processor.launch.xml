@@ -3,7 +3,7 @@
 <launch>
 
     <arg name='use_sim_time' default='false'/>
-    <arg name='robot_name' default='vikings_bot_1'/>
+    <arg name='robot_name' default='default_robot_name'/>
 
     <node pkg='point_cloud_processor' exec='point_cloud_processor.py' name='$(var robot_name)/pc_processor'>
         <param name='robot_name' value='$(var robot_name)'/>
