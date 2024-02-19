@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(point_cloud_processor)
+project(vikings_bot_point_cloud_processor)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -30,10 +30,13 @@ endif()
 
 # install Python executables
 ament_python_install_package(${PROJECT_NAME})
+ament_python_install_module(scripts/classes.py)
 
 install(
   PROGRAMS
-    scripts/point_cloud_processor.py
+    scripts/camera_processor.py
+    scripts/depth_processor.py
+    scripts/lidar_processor.py
   DESTINATION
     lib/${PROJECT_NAME}
 )
