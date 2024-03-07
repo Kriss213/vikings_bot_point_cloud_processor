@@ -24,7 +24,6 @@ class CameraProcessorNode(Node):
                                    type=Parameter.Type.INTEGER_ARRAY.value
                                ))
 
-        self.use_sim_time = self.get_parameter('use_sim_time').value
         self.robot_name = self.get_parameter('robot_name').value
         self.safe_classes = self.get_parameter('safe_classes').value
         

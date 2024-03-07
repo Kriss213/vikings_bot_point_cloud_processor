@@ -15,7 +15,6 @@ class DepthProcessorNode(Node):
         super().__init__('DepthProcessorNode')
         self.declare_parameter('robot_name', value='default_robot_name')
 
-        self.use_sim_time = self.get_parameter('use_sim_time').value
         self.robot_name = self.get_parameter('robot_name').value
 
         # add params for topics
