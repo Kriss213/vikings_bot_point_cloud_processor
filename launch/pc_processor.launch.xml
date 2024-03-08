@@ -8,7 +8,10 @@
     <node pkg='vikings_bot_point_cloud_processor' exec='camera_processor.py' name='data_filter_camera_processor' namespace='$(var robot_name)'>
         <param name='robot_name' value='$(var robot_name)'/>
         <param name='use_sim_time' value='$(var use_sim_time)'/>
-        <param name='safe_classes' value='[20, 18, 9, 11]'/>
+        <param name='safe_classes' value='[20, 18, 9, 11, 15]'/>
+        <param name='visualize_semantic_segmnetation' value='true'/>
+        <param name='segmentation_bounding_box_type' value='1'/>
+        <!--<param name='segmentation_bounding_box_padding' value='10'/> -->
     </node>
     <!-- Classes for deeplabv3_mobilenet_v3_large:
     __background__: 0,
@@ -34,12 +37,12 @@
     tvmonitor: 20,
     -->
     
-
+    <!--
     <node pkg='vikings_bot_point_cloud_processor' exec='depth_processor.py' name='data_filter_depth_processor' namespace='$(var robot_name)'>
         <param name='robot_name' value='$(var robot_name)'/>
         <param name='use_sim_time' value='$(var use_sim_time)'/>
     </node>
-
+    -->
     <node pkg='vikings_bot_point_cloud_processor' exec='lidar_processor.py' name='data_filter_lidar_processor' namespace='$(var robot_name)'>
         <param name='robot_name' value='$(var robot_name)'/>
         <param name='use_sim_time' value='$(var use_sim_time)'/>
