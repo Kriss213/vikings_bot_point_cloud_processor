@@ -345,7 +345,7 @@ class PointCloudProcessor:
         Initialize from sensor_msgs.msg.PointCloud2 message.
 
         Parameters:
-        -`pc2_msg` - A PointCloud2 message
+        * `pc2_msg` - A PointCloud2 message
 
         Returns: None
         """
@@ -387,7 +387,7 @@ class PointCloudProcessor:
         Initialize from sensor_msgs.msg.LaserScan message.
 
         Parameters:
-        -`ls_msg` - A LaserScan message
+        * `ls_msg` - A LaserScan message
 
         Returns: None
         """
@@ -416,8 +416,8 @@ class PointCloudProcessor:
         Initialize from numpy.ndarray of points. Must have shape like (point_count, 3)
 
         Parameters:
-        -`points`:numpy.ndarray - XYZ points
-        -`frame`:str - frame in which the points are given
+        * `points`:numpy.ndarray - XYZ points
+        * `frame`:str - frame in which the points are given
 
         Returns: None
         """
@@ -439,7 +439,7 @@ class PointCloudProcessor:
         Parameters:
 
         Returns:
-        `image`:ImageProcessor - Image with Z values as depth
+        * `image`:ImageProcessor - Image with Z values as depth
 
         """
         if not self.is_camera_info_set:
@@ -503,8 +503,8 @@ class PointCloudProcessor:
         Filter points based on segmentation model result.
         
         Parameters:
-        -`z_max`:float - limit point depth (default=float('inf'))
-        -`filter_mask`:Filter - np.ndarray
+        * `z_max`:float - limit point depth (default=float('inf'))
+        * `filter_mask`:Filter - np.ndarray
         
         Returns: None
         """
@@ -517,47 +517,55 @@ class PointCloudProcessor:
         if frame != self._frame:
             raise Exception(f"Point frame '{self._frame}' must match with camera frame '{frame}'!")
         
-        points = self.points
-        x, y, z = points[:, 0], points[:, 1], points[:, 2]
-
-        u_unlim = np.rint(fx * x / (z+1e-8) + cx).astype(int) # most likely contains  width < values and values < 0
-        v_unlim = np.rint(fy * y / (z+1e-8) + cy).astype(int)
-        
-        # filter here:
+        # Check filter mask
         filter_mask = filter_mask.squeeze()
         if (height, width) != filter_mask.shape:
             raise Exception(f"Camera info h,w ({height}, {width}) must match with filter mask shape {filter_mask.shape}")
         
+        points = self.points
+        x, y, z = points[:, 0], points[:, 1], points[:, 2]
 
-
+        # calculate projections on image plane for all points.
+        # since depth cam, lidar etc. FOV usually is greater than rgb camera's FOV,
+        # negative values and values greater than images width and height will be present
+        u_unlim = np.rint(fx * x / (z+1e-8) + cx).astype(int)
+        v_unlim = np.rint(fy * y / (z+1e-8) + cy).astype(int)
+        
+        # select those points that are "visible" in camera
         cond_matches_filter = (0 <= u_unlim) & (u_unlim < width) & (0 <= v_unlim) & (v_unlim < height)
         
+        # find pixel u and v coordinates for points that are visible in camera
         u_f = u_unlim[cond_matches_filter]
         v_f = v_unlim[cond_matches_filter]
         z_f = z[cond_matches_filter]
+
+        # in filter mask find points that are visible in camera
         matching_points_in_filter = filter_mask[v_f, u_f]
 
+        # since filter mask is binary (0: delete, 1: keep), multiply to remove points
         u_unlim[cond_matches_filter] = matching_points_in_filter * u_f
         v_unlim[cond_matches_filter] = matching_points_in_filter * v_f
         z[cond_matches_filter] = matching_points_in_filter * z_f
         
+        # remove points that are farther than z_lim or have 0 depth
         z_cond = (z <= z_max) & (z != 0)
         u_filtered = u_unlim[z_cond]
         v_filtered = v_unlim[z_cond]
         z_filtered = z[z_cond]
 
+        # project points back into 3D space
         z = z_filtered
         x = ((u_filtered - cx) * z_filtered) / fx
         y = ((v_filtered - cy) * z_filtered) / fy
 
         self._points = np.column_stack([x, y, z])
 
-    def to_PointCloud2(self, depth_max_range:float=float('inf'), msg_time:str=rclpy.clock.Clock().now().to_msg()) -> PointCloud2:
+    def to_PointCloud2(self, msg_time:str=rclpy.clock.Clock().now().to_msg()) -> PointCloud2:
         """
         Create a ROS2 PointCloud2 message
         
         Parameters:
-        -`depth_max_range`:float - maximum depth range in m (default inf)
+        * `msg_time`:str - message time to use (default: System Time)
 
         Returns:
         A PointCloud2 message
@@ -599,6 +607,14 @@ class SemanticSegmentation:
     """
     Segment an image with model.
     """
+    NO_BOUNDING_BOX=0
+    BOUNDING_BOX_FILLED=1
+    BOUNDING_BOX_OUTLINE=2
+
+    __fill_types = {
+        BOUNDING_BOX_FILLED: cv2.FILLED,
+        BOUNDING_BOX_OUTLINE:2
+    }
     def __init__(self, model, weights, labels:list, preprocess:transforms.Compose=None) -> None:
         self.weights = weights
         self.model = model(weights=weights)
@@ -624,12 +640,15 @@ class SemanticSegmentation:
 
         self.__last_visualiztion_frame_time = 0
 
-    def predict(self, image:np.ndarray) -> tuple:
+    def predict(self, image:np.ndarray, bounding_box_type:int=NO_BOUNDING_BOX, bounding_box_padding:int=0) -> tuple:
         """
         Apply semantic segmentation model to image.
 
         Parameters:
-        * `image`:numpy.ndarray - image to segment
+        * `image`:numpy.ndarray - image to segment,
+        * `bounding_box_type` - add a bounding box around object.
+           Use: `SemanticSegmentation.NO_BOUNDING_BOX` (default), `SemanticSegmentation.BOUNDING_BOX_FILLED`, `SemanticSegmentation.BOUNDING_BOX_OUTLINE`),
+        * `bounding_box_padding`:int - extra padding for bounding box, px (default=0)
 
         Returns:
         (
@@ -652,12 +671,35 @@ class SemanticSegmentation:
         
         # remove batch dim as it was only needed to pass image
         # through model; convert to numpy ndarray.
-        segmentation_mask = indices.squeeze().numpy()
+        segmentation_mask = indices.squeeze().numpy().astype(np.uint8)
         max_probabilities = max_probabilities.squeeze().numpy()
         
         # resize probabilities and segmenation mask to input size
         max_probabilities = cv2.resize(src=max_probabilities, dsize=image.shape[:2][::-1], interpolation=cv2.INTER_LINEAR)
         segmentation_mask = cv2.resize(src=segmentation_mask, dsize=image.shape[:2][::-1], interpolation=cv2.INTER_NEAREST)
+
+        if bounding_box_type in (SemanticSegmentation.BOUNDING_BOX_OUTLINE, SemanticSegmentation.BOUNDING_BOX_FILLED):
+            bounding_box_padding = int(bounding_box_padding)
+            contours, _ = cv2.findContours(segmentation_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            for contour in contours:
+                x_box, y_box, w_box, h_box = cv2.boundingRect(contour)
+                M = cv2.moments(contour)
+                cX = int(M["m10"] / (M["m00"] + 1e-8))
+                cY = int(M["m01"] / (M["m00"] + 1e-8))
+                class_id = int(segmentation_mask[cY, cX])
+                x1 = max(x_box-bounding_box_padding, 0)
+                y1 = max(y_box-bounding_box_padding, 0)
+                y_lim, x_lim = segmentation_mask.shape
+                x2 = min(x_box+w_box+bounding_box_padding, x_lim)
+                y2 = min(y_box+h_box+bounding_box_padding, y_lim)
+                
+                cv2.rectangle(
+                    img=segmentation_mask,
+                    pt1=(x1, y1),
+                    pt2=(x2, y2),
+                    color=class_id,
+                    thickness=SemanticSegmentation.__fill_types[bounding_box_type])                
 
         self.image = image
         self.segmentation_mask = segmentation_mask
