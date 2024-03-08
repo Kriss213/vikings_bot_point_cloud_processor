@@ -149,7 +149,7 @@ class DepthProcessorNode(Node):
             
             try:
                 self.__depth_color_tranform.find_transform(TF_buffer=self._TF_buffer, timeout=1.0)
-                self.get_logger().info("Lidar <--> color transforms found!")
+                self.get_logger().info("Depth <--> color transforms found!")
                 self.timer.cancel()
                 return True
             except:
