@@ -13,6 +13,7 @@ from typing import ForwardRef, Union
 from tf2_ros import Buffer
 import rclpy
 import time
+from collections import deque
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -817,12 +818,20 @@ class PointFilter:
     """
     Class that contains information about point cloud filter based on semantic segmentation result
     """
-    def __init__(self):
+    def __init__(self, buffer_len:int=1):
+        """
+        Parameters:
+        * `buffer_len`:int - specify filter mask buffer length (default=1)
+        """
+        if buffer_len < 1:
+            raise Exception(f"Condition not met: buffer_len>=1 (buffer_len={buffer_len})")
         self._segmentation_mask:np.ndarray = None
         self._probabilities:np.ndarray = None
         self._safe_classes = [0]
         self._threshold = 0.5
         self.__filter_mask = None
+
+        self.__filter_mask_buffer = deque(maxlen=buffer_len)
 
         self.img_msg = Image()
 
@@ -875,13 +884,27 @@ class PointFilter:
         * `filter mask`: np.ndarray
         """
         
+        # Get filter mask based on current perception
         self.__filter_mask.fill(1)
 
         cond1 = np.isin(self.segmentation_mask, self._safe_classes)
         cond2 = self.probabilities > self.threshold
         self.__filter_mask[cond1 & cond2] = 0
 
-        return self.__filter_mask
+        # add current perception filter mask to buffer
+        self.__filter_mask_buffer.append(self.__filter_mask)
+
+        # calculate sum for each index across buffer (occurances of 1)
+        filter_mask_sum = np.sum(self.__filter_mask_buffer, axis=0)
+
+        # get new filter mask based on buffer:
+        new_filter_mask = np.zeros(self.__filter_mask.shape, dtype=np.uint8)
+
+        # set pixels to keep based on occurances of 1
+        buffer_len = len(self.__filter_mask_buffer)
+        new_filter_mask[filter_mask_sum > buffer_len/2] = 1 # buffer_len/2 -> 50%
+
+        return new_filter_mask
     
     def to_Image(self, header:Header) -> Image:
         """
