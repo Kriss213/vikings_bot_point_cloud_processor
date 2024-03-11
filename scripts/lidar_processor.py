@@ -6,7 +6,6 @@ from rclpy.node import Node
 from tf2_ros import Buffer, TransformListener
 
 from classes import PointCloudProcessor, FrameTransformer, ImageProcessor
-import time
 
 
 class LidarProcessorNode(Node):
@@ -80,7 +79,7 @@ class LidarProcessorNode(Node):
             ) # filtered points
 
         
-        #transform back to depth frame:
+        #transform back to lidar frame:
         transform.transform_points(pc_proc, inverse=True)
 
         # convert 3D points to PointCloud2 Message
