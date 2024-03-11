@@ -1,6 +1,6 @@
 # vikings_bot_point_cloud_processor
 
-Captures point cloud from realsense camera, processes it and republishes
+Applies filter to LaserScan or PointCloud2 based on semantic segmentation model.
 
 
 Run with
