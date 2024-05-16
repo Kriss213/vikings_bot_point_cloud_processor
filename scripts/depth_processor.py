@@ -34,14 +34,14 @@ class DepthProcessorNode(Node):
         # Subscribe to topics
         self.subscription_depth_point_cloud = self.create_subscription(
                 PointCloud2,
-                f'/{self.robot_name}/camera/depth/points',
+                f'/{self.robot_name}/camera/depth/color/points',
                 self.depth_point_cloud_callback,
                 10
             )
         # DEPTH IMAGE ALIGNED IN RGB FRAME:
         self.subscription_depth_img_in_color_frame = self.create_subscription(
                 Image,
-                f'/{self.robot_name}/camera/depth/image_raw', # for sim assume that this is in color frame
+                f'/{self.robot_name}/camera/aligned_depth_to_color/image_raw', # for sim assume that this is in color frame
                 self.depth_image_in_color_frame_callback,
                 10
             )
@@ -53,7 +53,7 @@ class DepthProcessorNode(Node):
         )
         self.subscription_filter_mask = self.create_subscription(
             Image,
-            f'/{self.robot_name}/camera/color/filter_mask',
+            f'/{self.robot_name}/camera/filter_mask',
             self.filter_mask_callback,
             10
         )

@@ -21,27 +21,25 @@ class CameraProcessorNode(Node):
         self.declare_parameter(name='safe_classes',
                                value=[-1],
                                descriptor=ParameterDescriptor(
-                                   description="A list of semantic segmentation classes for depth data filter to mark as safe.",
+                                   description="Semantic segmentation model classes that are considered safe (not detected as an obstacle)",
                                    type=Parameter.Type.INTEGER_ARRAY.value
-                               ))
-        
-        self.declare_parameter(name='visualize_semantic_segmnetation',
+                               ))       
+        self.declare_parameter(name='vis_sem_seg',
                                value=False,
                                descriptor=ParameterDescriptor(
                                    description="Visualize semantic segmentation.",
                                    type=Parameter.Type.BOOL.value
-                               ))
-        
-        self.declare_parameter(name='segmentation_bounding_box_type',
+                               )) 
+        self.declare_parameter(name='seg_bb_type',
                                value=0,
                                descriptor=ParameterDescriptor(
-                                   description="Add a bounding box around detected object. 0 - no bounding box (default), 1 - filled bounding box, 2 - outlined bounding box",
+                                   description="Add a bounding box around detected object (to enhance sensor data filtering). 0 - no bounding box (default), 1 - filled bounding box, 2 - outlined bounding box",
                                    type=Parameter.Type.INTEGER.value
                                ))
-        self.declare_parameter(name='segmentation_bounding_box_padding',
+        self.declare_parameter(name='seg_bb_pad',
                                value=0,
                                descriptor=ParameterDescriptor(
-                                   description="Add padding for bounding box (default 0 px).",
+                                   description="Add padding for bounding box (to enhance sensor data filtering). Default 0 px.",
                                    type=Parameter.Type.INTEGER.value
                                ))
         self.declare_parameter(name='filter_buffer_len',
@@ -53,17 +51,27 @@ class CameraProcessorNode(Node):
         self.declare_parameter(name='filter_prob_threshold',
                                value=0.5,
                                descriptor=ParameterDescriptor(
-                                   description="Probability of class for it to be considered correctly detected [0-1].",
+                                   description="Required probability of class for it to be considered correctly detected [0-1].",
                                    type=Parameter.Type.DOUBLE.value
                                ))
         
-        self.vis_sem_seg = self.get_parameter('visualize_semantic_segmnetation').value
-        self.bounding_box_type = self.get_parameter('segmentation_bounding_box_type').value
-        self.bounding_box_padding = self.get_parameter('segmentation_bounding_box_padding').value
+        # Can be False when only semantic segmentation is launched (without filtering)
+        self.declare_parameter(name='publish_filter_mask',
+                               value=False,
+                               descriptor=ParameterDescriptor(
+                                   description="Whether filter mask must be published (set automatically, do not override!)",
+                                   type=Parameter.Type.BOOL.value
+                               ))
+
+        self.vis_sem_seg = self.get_parameter('vis_sem_seg').value
+        self.bounding_box_type = self.get_parameter('seg_bb_type').value
+        self.bounding_box_padding = self.get_parameter('seg_bb_pad').value
 
         self.robot_name = self.get_parameter('robot_name').value
         self.safe_classes = self.get_parameter('safe_classes').value
         
+        self.must_publish_filter_mask = self.get_parameter("publish_filter_mask").value
+
         # Image processor initialization
         self.img_proc = ImageProcessor()
 
@@ -104,11 +112,20 @@ class CameraProcessorNode(Node):
         )
 
         # Create publisher
-        self.filter_mask_publisher = self.create_publisher(
+        if self.must_publish_filter_mask:
+            self.filter_mask_publisher = self.create_publisher(
+                Image,
+                f'/{self.robot_name}/camera/filter_mask',
+                10
+            )
+
+        # Create a publisher for visualizing semantic segmentation info board
+        self.segmentation_info_board_publisher = self.create_publisher(
             Image,
-            f'/{self.robot_name}/camera/color/filter_mask',
+            f'/{self.robot_name}/camera/color/semantic_segmentation_info_board',
             10
         )
+
 
     # CALLBACK methods
     def RGB_image_callback(self, msg:Image):
@@ -131,9 +148,10 @@ class CameraProcessorNode(Node):
         header.stamp = self.get_clock().now().to_msg()
         img_msg = self.point_filter.to_Image(header=header)
         
-        self.filter_mask_publisher.publish(img_msg)
-        if self.vis_sem_seg:
-            self.segmentator.visualize()
+        if self.must_publish_filter_mask:
+            self.filter_mask_publisher.publish(img_msg)
+        info_board_msg = self.segmentator.visualize(show=self.vis_sem_seg)
+        self.segmentation_info_board_publisher.publish(info_board_msg)
         
     def RGB_camera_info_callback(self, msg:CameraInfo):
         self.img_proc.set_camera_info(msg, overwrite=False)

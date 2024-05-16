@@ -44,11 +44,12 @@ class LidarProcessorNode(Node):
         )
         self.subscription_filter_mask = self.create_subscription(
             Image,
-            f'/{self.robot_name}/camera/color/filter_mask',
+            f'/{self.robot_name}/camera/filter_mask',
             self.filter_mask_callback,
             10
         )
         # Create publisher
+        # TODO recalculate to LaserScan!!
         self.publisher_lidar_cloud = self.create_publisher(
             PointCloud2,
             f'/{self.robot_name}/lidar_scan/filtered/points',

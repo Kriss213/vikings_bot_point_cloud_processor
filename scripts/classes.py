@@ -14,6 +14,7 @@ from tf2_ros import Buffer
 import rclpy
 import time
 from collections import deque
+from cv_bridge import CvBridge
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -641,6 +642,10 @@ class SemanticSegmentation:
 
         self.__last_visualiztion_frame_time = 0
 
+        #self.overlay_image = Image()
+        #self.overlay_image.encoding = '8UC1'
+        self.cv_bridge = CvBridge()
+
     def predict(self, image:np.ndarray, bounding_box_type:int=NO_BOUNDING_BOX, bounding_box_padding:int=0) -> tuple:
         """
         Apply semantic segmentation model to image.
@@ -708,16 +713,19 @@ class SemanticSegmentation:
 
         return segmentation_mask, max_probabilities
 
-    def visualize(self) -> None:
+    def visualize(self, show:bool=False) -> Image:
         """
-        Visualize original image, segmentation mask and spotted classes.
+        Generate a ROS2 Image message containing Semantic segmentation visualization (original image, segmentation mask and identified classes).
 
-        Returns: None
+        Parameters:
+        * `show`:bool: show a CV2 window in addition to publishing Image message.
+
+        Returns: ROS2 Image message
         """
         if type(self.segmentation_mask) != np.ndarray or type(self.probabilities) != np.ndarray:
             raise Exception(f"Perform semantic segmenation using 'predict()' before visualizing!")
 
-        if self.__window_name == None:
+        if self.__window_name == None and show:
             self.__window_name = "Semantic segmentation"
             cv2.namedWindow(self.__window_name, cv2.WINDOW_NORMAL)
         
@@ -811,8 +819,13 @@ class SemanticSegmentation:
         # add label window next to image and color map
         overlay = np.hstack((cv2.cvtColor(self.image,cv2.COLOR_RGB2BGR), color_map, label_window))
 
-        cv2.imshow(self.__window_name, overlay)
-        cv2.waitKey(1)
+        ros_2_image = self.cv_bridge.cv2_to_imgmsg(overlay,'bgr8')
+        
+        if show:
+            cv2.imshow(self.__window_name, overlay)
+            cv2.waitKey(1)
+        
+        return ros_2_image
 
 class PointFilter:
     """
