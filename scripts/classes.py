@@ -14,6 +14,7 @@ from tf2_ros import Buffer
 import rclpy
 import time
 from collections import deque
+from cv_bridge import CvBridge
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -398,6 +399,17 @@ class PointCloudProcessor:
         ranges = np.frombuffer(ls_msg.ranges, dtype=np.float32)
         angles = np.arange(start=ls_msg.angle_min, stop=ls_msg.angle_max, step=ls_msg.angle_increment, dtype=np.float64)
 
+        
+        # adjust angles/ranges vector to be of the same shape
+        # ideally both should be equal already
+        ang_len = angles.shape[0]
+        rng_len = ranges.shape[0]
+        if rng_len > ang_len:
+            ranges = ranges[:ang_len]
+
+        elif ang_len > rng_len:
+            angles = angles[:rng_len]
+
         X_l = ranges * np.cos(angles)
         Y_l = ranges * np.sin(angles)
         Z_l = np.zeros_like(X_l) # 0 in lidar frame
@@ -641,6 +653,10 @@ class SemanticSegmentation:
 
         self.__last_visualiztion_frame_time = 0
 
+        #self.overlay_image = Image()
+        #self.overlay_image.encoding = '8UC1'
+        self.cv_bridge = CvBridge()
+
     def predict(self, image:np.ndarray, bounding_box_type:int=NO_BOUNDING_BOX, bounding_box_padding:int=0) -> tuple:
         """
         Apply semantic segmentation model to image.
@@ -695,12 +711,18 @@ class SemanticSegmentation:
                 x2 = min(x_box+w_box+bounding_box_padding, x_lim)
                 y2 = min(y_box+h_box+bounding_box_padding, y_lim)
                 
+                # add rectangle to segmentation mask
+                # and update the probabilites for rectangle area to match mean probability of class
+                mean_probability = np.mean(max_probabilities[segmentation_mask==class_id])
+                
                 cv2.rectangle(
                     img=segmentation_mask,
                     pt1=(x1, y1),
                     pt2=(x2, y2),
                     color=class_id,
-                    thickness=SemanticSegmentation.__fill_types[bounding_box_type])                
+                    thickness=SemanticSegmentation.__fill_types[bounding_box_type])
+                max_probabilities[segmentation_mask==class_id] = mean_probability
+               
 
         self.image = image
         self.segmentation_mask = segmentation_mask
@@ -708,16 +730,19 @@ class SemanticSegmentation:
 
         return segmentation_mask, max_probabilities
 
-    def visualize(self) -> None:
+    def visualize(self, show:bool=False) -> Image:
         """
-        Visualize original image, segmentation mask and spotted classes.
+        Generate a ROS2 Image message containing Semantic segmentation visualization (original image, segmentation mask and identified classes).
 
-        Returns: None
+        Parameters:
+        * `show`:bool: show a CV2 window in addition to publishing Image message.
+
+        Returns: ROS2 Image message
         """
         if type(self.segmentation_mask) != np.ndarray or type(self.probabilities) != np.ndarray:
             raise Exception(f"Perform semantic segmenation using 'predict()' before visualizing!")
 
-        if self.__window_name == None:
+        if self.__window_name == None and show:
             self.__window_name = "Semantic segmentation"
             cv2.namedWindow(self.__window_name, cv2.WINDOW_NORMAL)
         
@@ -811,8 +836,13 @@ class SemanticSegmentation:
         # add label window next to image and color map
         overlay = np.hstack((cv2.cvtColor(self.image,cv2.COLOR_RGB2BGR), color_map, label_window))
 
-        cv2.imshow(self.__window_name, overlay)
-        cv2.waitKey(1)
+        ros_2_image = self.cv_bridge.cv2_to_imgmsg(overlay,'bgr8')
+        
+        if show:
+            cv2.imshow(self.__window_name, overlay)
+            cv2.waitKey(1)
+        
+        return ros_2_image
 
 class PointFilter:
     """
