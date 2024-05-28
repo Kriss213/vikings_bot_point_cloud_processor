@@ -52,7 +52,7 @@ class LidarProcessorNode(Node):
         # TODO recalculate to LaserScan!!
         self.publisher_lidar_cloud = self.create_publisher(
             PointCloud2,
-            f'/{self.robot_name}/lidar_scan/filtered/points',
+            f'/{self.robot_name}/lidar_scan_filtered',
             10
         )
 
