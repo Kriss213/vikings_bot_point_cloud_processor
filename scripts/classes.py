@@ -399,6 +399,17 @@ class PointCloudProcessor:
         ranges = np.frombuffer(ls_msg.ranges, dtype=np.float32)
         angles = np.arange(start=ls_msg.angle_min, stop=ls_msg.angle_max, step=ls_msg.angle_increment, dtype=np.float64)
 
+        
+        # adjust angles/ranges vector to be of the same shape
+        # ideally both should be equal already
+        ang_len = angles.shape[0]
+        rng_len = ranges.shape[0]
+        if rng_len > ang_len:
+            ranges = ranges[:ang_len]
+
+        elif ang_len > rng_len:
+            angles = angles[:rng_len]
+
         X_l = ranges * np.cos(angles)
         Y_l = ranges * np.sin(angles)
         Z_l = np.zeros_like(X_l) # 0 in lidar frame
@@ -700,12 +711,18 @@ class SemanticSegmentation:
                 x2 = min(x_box+w_box+bounding_box_padding, x_lim)
                 y2 = min(y_box+h_box+bounding_box_padding, y_lim)
                 
+                # add rectangle to segmentation mask
+                # and update the probabilites for rectangle area to match mean probability of class
+                mean_probability = np.mean(max_probabilities[segmentation_mask==class_id])
+                
                 cv2.rectangle(
                     img=segmentation_mask,
                     pt1=(x1, y1),
                     pt2=(x2, y2),
                     color=class_id,
-                    thickness=SemanticSegmentation.__fill_types[bounding_box_type])                
+                    thickness=SemanticSegmentation.__fill_types[bounding_box_type])
+                max_probabilities[segmentation_mask==class_id] = mean_probability
+               
 
         self.image = image
         self.segmentation_mask = segmentation_mask
