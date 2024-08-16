@@ -58,8 +58,10 @@ class ImageProcessor:
     def from_img_message(self, image_message:Image) -> None:
         """
         Initialize class from sensor_msgs.msg.Image message
+
+        :param image_message: A ROS2 Image message.
         
-        Returns: None
+        :return None:
         """
         self._message = image_message
         self._width = image_message.width
@@ -79,7 +81,9 @@ class ImageProcessor:
         """
         Initialize class from image in numpy.ndarray.
 
-        Returns: None
+        :param image: A numpy.ndarray with 2 or 3 dimensions.
+        
+        :return None:
         """
         self._height, self._width = image.shape
         #self._data = image
@@ -97,11 +101,10 @@ class ImageProcessor:
         """
         Update camera info parametrs needed for converting pixels to 3D points
 
-        Parameters:
-        * `camera_info_msg`:sensors_msgs.msg.CameraInfo - A ROS2 CameraInfo message
-        * `overwrite`:bool - If False, camera info will not be overwritten (default=True)
+        :param camera_info_msg: A ROS2 CameraInfo message
+        :param overwrite: If False, camera info will not be overwritten (default=True)
 
-        Returns: None
+        :return None:
         """
         if not np.any(self.__dy_over_fy) or overwrite:
             # Calculate parametrs for converting 2D to 3D:
@@ -121,8 +124,7 @@ class ImageProcessor:
         """
         Get numpy.ndarray like (height, width, channels)
 
-        Retruns:
-        * `np.ndarray like (height, width, channels)`
+        :return np.ndarray: with shape like (height, width, channels)
         """
         
         if self.__init_from_img:
@@ -140,10 +142,9 @@ class ImageProcessor:
         """
         Filter image based on segmentation model result.
         
-        Parameters:
-        * `filter_mask`:np.ndarray - np.ndarray like image with values 0 (delete) and 1 (keep)
+        :param filter_mask: A np.ndarray like image with values 0 (delete) and 1 (keep)
         
-        Returns: None
+        :return None:
         """
 
         if self._channels != 1:
@@ -160,13 +161,11 @@ class ImageProcessor:
         """
         Transform 2D image to 3D points in camera frame using z_channel as Z data.
 
-        Parameters:
-        * `z_lim`:float - limit point depth (default=float('inf'))
-        * `z_channel`:int - which channel use as point depth value (default=0)
-        * `z_mul`:float - multiply Z value to change units etc.
+        :param z_lim: Limit point depth (default=float('inf')).
+        :param z_channel: Which channel use as point depth value (default=0).
+        :param z_mul: Multiply Z value to change units etc.
 
-        Returns:
-        * A PointCloudProcessor object
+        :return pc_processor_obj: A PointCloudProcessor object.
         """
 
         if not self.is_camera_info_set:#(np.any(self.__dx_over_fx) and np.any(self.__dy_over_fy)):
@@ -207,7 +206,7 @@ class FrameTransformer:
         """
         Initialize class from geometrey_msgs.msg.Transform
 
-        Returns: None
+        :return None:
         """
         self._translation = np.array([
             transform_fw.translation.x,
@@ -240,11 +239,10 @@ class FrameTransformer:
         """
         Find transform between source and target frame.
         
-        Parameters:
-        * `TF_buffer`:Buffer - a buffer where to look for transform
-        * `timeout`:float - timeout to wait for transform in buffer (default=1.0).
+        :param TF_buffer: A buffer where to look for transform.
+        :param timeout: Timeout to wait for transform in buffer (default=1.0).
 
-        Returns: None
+        :return None:
         """
         
         t_fw = TF_buffer.lookup_transform(
@@ -264,13 +262,10 @@ class FrameTransformer:
         """
         Transform points from source frame to target frame.
         
-        Parameters:
-        * `points`: A np.ndarray of 3D points like (n, 3) or PointCloudProcessor object. If PointCloudProcessor object passed, it will be edited.
-        * `inverse`:bool - if True, transfrom from target_frame to source_frame
+        :param points: A np.ndarray of 3D points like (n, 3) or PointCloudProcessor object. If `points` is an instance of `PointCloudProcessor`, instance's points are transformed.
+        :param inverse: If True, transfrom from target_frame to source_frame
 
-        If `points` is an instance of `PointCloudProcessor`, instance's points are transformed. 
-
-        Returns: (PointCloudProcessor object, target frame)
+        :return tuple: (PointCloudProcessor object, target frame)
         """
         if not(np.any(self._rotation) and np.any(self._translation)):
             raise Exception("Use find_transform() before transforming points!")
@@ -328,6 +323,13 @@ class PointCloudProcessor:
         self.__camera_info_msg = None
         self.__camera_params = None
         self.is_camera_info_set= False
+
+        self.__init_from_LaserScan_msg = False
+        self.__angle_min = None
+        self.__angle_max = None
+        self.__angle_inc = None
+        self.__range_min = None
+        self.__range_max = None
     @property
     def points(self):
         return self._points
@@ -346,10 +348,9 @@ class PointCloudProcessor:
         """
         Initialize from sensor_msgs.msg.PointCloud2 message.
 
-        Parameters:
-        * `pc2_msg` - A PointCloud2 message
+        :param pc2_msg: A PointCloud2 message
 
-        Returns: None
+        :return None:
         """
         if not omit_RGB:
             raise NotImplementedError("The inclusion of RGB data in point cloud is currently not supported")
@@ -388,13 +389,17 @@ class PointCloudProcessor:
         """
         Initialize from sensor_msgs.msg.LaserScan message.
 
-        Parameters:
-        * `ls_msg` - A LaserScan message
+        :param ls_msg: A LaserScan message.
 
-        Returns: None
+        :return None:
         """
         # set frame
         self._frame = ls_msg.header.frame_id
+        self.__angle_min = ls_msg.angle_min
+        self.__angle_max = ls_msg.angle_max
+        self.__angle_inc = ls_msg.angle_increment
+        self.__range_min = ls_msg.range_min
+        self.__range_max = ls_msg.range_max
 
         ranges = np.frombuffer(ls_msg.ranges, dtype=np.float32)
         angles = np.arange(start=ls_msg.angle_min, stop=ls_msg.angle_max, step=ls_msg.angle_increment, dtype=np.float64)
@@ -423,16 +428,16 @@ class PointCloudProcessor:
         
         # Stack XYZ values
         self._points = np.column_stack((X_l, Y_l, Z_l))
+        self.__init_from_LaserScan_msg = True
         
     def from_points(self, points:np.ndarray, frame:str) -> None:
         """
         Initialize from numpy.ndarray of points. Must have shape like (point_count, 3)
 
-        Parameters:
-        * `points`:numpy.ndarray - XYZ points
-        * `frame`:str - frame in which the points are given
+        :param points: numpy.ndarray of XYZ points.
+        :param frame: Frame in which the points are given.
 
-        Returns: None
+        :return None:
         """
         if type(points) != np.ndarray:
             self._points = np.ndarray(points)
@@ -511,15 +516,15 @@ class PointCloudProcessor:
             self.is_camera_info_set= True
         return
 
-    def apply_filter(self, filter_mask:np.ndarray, z_max:float=float('inf')) -> None:
+    def apply_filter(self, filter_mask:np.ndarray, z_max:float=float('inf'), keep_only_filtered:bool=False) -> None:
         """
         Filter points based on segmentation model result.
         
-        Parameters:
-        * `z_max`:float - limit point depth (default=float('inf'))
-        * `filter_mask`:Filter - np.ndarray
+        :param z_max: Limit point depth (default=float('inf')).
+        :param filter_mask: Binary matrix with points to keep (1) and points to delete (0).
+        :param keep_only_filtered: If True keep only those points that pass the filter.
         
-        Returns: None
+        :return None:
         """
 
         if not self.is_camera_info_set:
@@ -560,11 +565,28 @@ class PointCloudProcessor:
         v_unlim[cond_matches_filter] = matching_points_in_filter * v_f
         z[cond_matches_filter] = matching_points_in_filter * z_f
         
-        # remove points that are farther than z_lim or have 0 depth
+        # remove points that are out of camera's FOV
+        if keep_only_filtered:
+            u_unlim = u_unlim[cond_matches_filter]
+            v_unlim = v_unlim[cond_matches_filter]
+            z = z[cond_matches_filter]
+
+        
         z_cond = (z <= z_max) & (z != 0)
-        u_filtered = u_unlim[z_cond]
-        v_filtered = v_unlim[z_cond]
-        z_filtered = z[z_cond]
+        if not self.__init_from_LaserScan_msg:
+            # remove points that are farther than z_lim or have 0 depth
+            u_filtered = u_unlim[z_cond]
+            v_filtered = v_unlim[z_cond]
+            z_filtered = z[z_cond]
+        else:
+            # keep deleted points but marked as nan
+            u_filtered = u_unlim.astype(float)
+            v_filtered = v_unlim.astype(float)
+            z_filtered = z.astype(float)
+            inv_z_cond = np.logical_not(z_cond)
+            u_filtered[inv_z_cond] = float('nan')
+            v_filtered[inv_z_cond] = float('nan')
+            z_filtered[inv_z_cond] = float('nan')
 
         # project points back into 3D space
         z = z_filtered
@@ -575,13 +597,11 @@ class PointCloudProcessor:
 
     def to_PointCloud2(self, msg_time:str=rclpy.clock.Clock().now().to_msg()) -> PointCloud2:
         """
-        Create a ROS2 PointCloud2 message
+        Create a ROS2 PointCloud2 message.
         
-        Parameters:
-        * `msg_time`:str - message time to use (default: System Time)
+        :param msg_time: Message time to use.
 
-        Returns:
-        A PointCloud2 message
+        :return point_cloud_msg: A PointCloud2 message.
         """
         
         point_cloud_msg = PointCloud2()
@@ -615,6 +635,44 @@ class PointCloudProcessor:
         point_cloud_msg.header.stamp = msg_time
 
         return point_cloud_msg
+
+    def to_LaserScan(self, msg_time:str=rclpy.clock.Clock().now().to_msg()) -> LaserScan:
+        """
+        Get a LaserScan message from 3D points.
+
+        :param msg_time: Time stamp for message.
+
+        :return new_msg: A new LaserScan message.
+
+        :raises Exception('Can only convert to LaserScan message, if instance was initiated from LaserScan message'):
+        """
+        if not self.__init_from_LaserScan_msg:
+            raise Exception("Can only convert to LaserScan message, if instance was initiated from LaserScan message")
+
+        new_msg = LaserScan()
+
+        new_msg.angle_min = self.__angle_min
+        new_msg.angle_max = self.__angle_max
+        new_msg.angle_increment = self.__angle_inc
+        new_msg.range_min = self.__range_min
+        new_msg.range_max = self.__range_max
+
+        new_msg.header.frame_id = self.frame
+        
+        x = self.points[:, 0]
+        y = self.points[:, 1]
+
+        ranges = np.hypot(x, y).astype(np.float32)
+        mem_view_ranges = memoryview(ranges)
+        ranges_arr = array.array('f')
+
+        ranges_arr.frombytes(mem_view_ranges.cast('B'))
+        
+        new_msg.ranges=ranges_arr
+
+        new_msg.header.stamp = msg_time
+
+        return new_msg
 
 class SemanticSegmentation:
     """
@@ -661,17 +719,14 @@ class SemanticSegmentation:
         """
         Apply semantic segmentation model to image.
 
-        Parameters:
-        * `image`:numpy.ndarray - image to segment,
-        * `bounding_box_type` - add a bounding box around object.
-           Use: `SemanticSegmentation.NO_BOUNDING_BOX` (default), `SemanticSegmentation.BOUNDING_BOX_FILLED`, `SemanticSegmentation.BOUNDING_BOX_OUTLINE`),
-        * `bounding_box_padding`:int - extra padding for bounding box, px (default=0)
+        :param image: Image (numpy.ndarray) to segment.
+        :param bounding_box_type: Add a bounding box around object. Use: `SemanticSegmentation.NO_BOUNDING_BOX` (default), `SemanticSegmentation.BOUNDING_BOX_FILLED`, `SemanticSegmentation.BOUNDING_BOX_OUTLINE`),
+        :param bounding_box_padding: Extra padding for bounding box, px (default=0)
 
-        Returns:
-        (
-        * segmentation mask with same shape as input image - contains classes for each pixel,
-        * probabilities mask with same shape as input image - containts probabilities for each class
-        )
+        :return (segmentation_mask, max_probabilities):
+        
+        * segmentation mask with same shape as input image - contains classes for each pixel
+        * probabilities mask with same shape as input image - containts probabilities for each class)
         """
         # preprocess image and add batch dim
         im_preprocessed = self.preprocess(image)
@@ -734,10 +789,9 @@ class SemanticSegmentation:
         """
         Generate a ROS2 Image message containing Semantic segmentation visualization (original image, segmentation mask and identified classes).
 
-        Parameters:
-        * `show`:bool: show a CV2 window in addition to publishing Image message.
+        :param show: Show a CV2 window in addition to publishing Image message.
 
-        Returns: ROS2 Image message
+        :return ros_2_image: a ROS2 Image message
         """
         if type(self.segmentation_mask) != np.ndarray or type(self.probabilities) != np.ndarray:
             raise Exception(f"Perform semantic segmenation using 'predict()' before visualizing!")
@@ -851,7 +905,7 @@ class PointFilter:
     def __init__(self, buffer_len:int=1):
         """
         Parameters:
-        * `buffer_len`:int - specify filter mask buffer length (default=1)
+        :param buffer_len`: Specify filter mask buffer length (default=1)
         """
         if buffer_len < 1:
             raise Exception(f"Condition not met: buffer_len>=1 (buffer_len={buffer_len})")
@@ -910,8 +964,7 @@ class PointFilter:
         """
         Get filter mask. 1 if point must be kept, 0 otherwise
         
-        Returns:
-        * `filter mask`: np.ndarray
+        :return filter mask: np.ndarray.
         """
         
         # Get filter mask based on current perception
@@ -940,11 +993,9 @@ class PointFilter:
         """
         Create ROS2 Image message from filter mask
         
-        Parameters:
-        * `header`:Header - a header for image (contains frame_id and message time)
+        :param header: A header for image (contains frame_id and message time).
 
-        Returns:
-        * A ROS2 Image message
+        :return img_msg: A ROS2 Image message.
         """
         self.get_filter_mask()
         img_msg = self.img_msg

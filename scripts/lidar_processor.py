@@ -7,6 +7,8 @@ from tf2_ros import Buffer, TransformListener
 
 from classes import PointCloudProcessor, FrameTransformer, ImageProcessor
 
+from functools import reduce
+from operator import and_
 
 class LidarProcessorNode(Node):
     """
@@ -48,22 +50,32 @@ class LidarProcessorNode(Node):
             self.filter_mask_callback,
             10
         )
-        # Create publisher
-        # TODO recalculate to LaserScan!!
-        self.publisher_lidar_cloud = self.create_publisher(
-            PointCloud2,
+      
+        self.publisher_lidar_filtered = self.create_publisher(
+            LaserScan,
             f'/{self.robot_name}/lidar_scan_filtered',
             10
         )
 
+        self.publisher_safe_object_points = self.create_publisher(
+            PointCloud2,
+            f'/{self.robot_name}/safe_obstacle_points',
+            10
+        )
+
         # create a timer for init_transforms
-        self.timer = self.create_timer(0.33, self.__init_transforms) #30 Hz
+        self.timer = self.create_timer(0.33, self.__init_static_transforms) #30 Hz
     
     def lidar_scan_callback(self, msg:LaserScan):
         self.__lidar_frame = msg.header.frame_id
 
         # Check if necessary values are initialized
-        if not self.__lidar_pc_processor.is_camera_info_set or self.__lidar_color_tranform == None or not self.__filter_mask.is_image_set:
+        conditions = [
+            self.__lidar_pc_processor.is_camera_info_set,
+            self.__lidar_color_tranform != None,
+            self.__filter_mask.is_image_set,
+        ]
+        if not reduce(and_, conditions):
             return
   
         pc_proc = self.__lidar_pc_processor
@@ -83,11 +95,33 @@ class LidarProcessorNode(Node):
         #transform back to lidar frame:
         transform.transform_points(pc_proc, inverse=True)
 
-        # convert 3D points to PointCloud2 Message
-        new_msg = pc_proc.to_PointCloud2(msg_time=self.get_clock().now().to_msg())
+        # convert 3D points to LaserScan
+        new_msg = pc_proc.to_LaserScan(msg_time=self.get_clock().now().to_msg())
 
         # publish
-        self.publisher_lidar_cloud.publish(new_msg)
+        self.publisher_lidar_filtered.publish(new_msg)
+
+        #=====================================================
+        # using the same object because it needs other properties set e.g camera info
+        # === Get points representing safe objects ===
+        pc_proc.from_LaserScan(msg)
+        
+        # transform to color frame
+        self.__lidar_color_tranform.transform_points(pc_proc)
+
+        # get inverse of filter mask
+        if self.__filter_mask == None:
+            return
+        inverese_filter_mask = 1 - self.__filter_mask.image
+        pc_proc.apply_filter(filter_mask=inverese_filter_mask, keep_only_filtered=True, z_max=2.5) # do not consider point farther that 2.5 m away
+
+        # furher transformations are handled by RmSafeObstacles plugin
+
+        #convert to pointCloud2 message
+        new_msg = pc_proc.to_PointCloud2(msg_time=self.get_clock().now().to_msg())
+
+        #publish
+        self.publisher_safe_object_points.publish(new_msg)
 
     def RGB_camera_info_callback(self, msg:CameraInfo):
         self.__lidar_pc_processor.set_camera_info(msg, overwrite=False)
@@ -97,13 +131,11 @@ class LidarProcessorNode(Node):
     def filter_mask_callback(self, msg:Image):
         self.__filter_mask.from_img_message(msg)
         
-    def __init_transforms(self) -> bool:
+    def __init_static_transforms(self) -> bool:
         """
-        Intitialize transforms. Returns True if transforms are initialized.
+        Intitialize static transforms. Returns True if transforms are initialized.
 
-        Returns:
-        * `True` if transforms initialized successfully
-        * `False` otherwise
+        :return bool: `True` if transforms initialized successfully. `False` otherwise.
         """
         if self.__color_frame and self.__lidar_frame:
             # check if transforms are initialized
