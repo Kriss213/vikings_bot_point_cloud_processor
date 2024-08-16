@@ -1,0 +1,7 @@
+<library path="vikings_bot_point_cloud_processor_core">
+    <class name="vikings_bot_point_cloud_processor/RmSafeObstaclesLayer" type="vikings_bot_point_cloud_processor::RmSafeObstaclesLayer" base_class_type="nav2_costmap_2d::Layer">
+      <description>A costmap plugin to clear regions where a safe obstacle is detected</description>
+    </class>
+  </library>
+  
+  
