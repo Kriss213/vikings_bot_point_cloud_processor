@@ -138,12 +138,13 @@ class ImageProcessor:
         
         return np.frombuffer(self._data_raw, dtype=self.__endcodings_dtypes[self._encoding]).reshape(self._height, self._width, self._channels) 
         
-    def apply_filter(self, filter_mask:np.ndarray) -> None:
+    def apply_filter(self, filter_mask:np.ndarray, keep_only_filtered:bool=False) -> None:
         """
         Filter image based on segmentation model result.
         
         :param filter_mask: A np.ndarray like image with values 0 (delete) and 1 (keep)
-        
+        :param keep_only_filtered: If True keep only those points that pass the filter.
+
         :return None:
         """
 
@@ -155,6 +156,8 @@ class ImageProcessor:
             raise Exception(f"Camera info shape {self.image.shape} must match with filter mask shape {filter_mask.shape}")
         
         # apply filter
+        if keep_only_filtered:
+            filter_mask = 1 - filter_mask #invert
         self.image = filter_mask * self.image
 
     def to_3D(self, z_lim:float=float('inf'), z_channel:int=0, z_mul:float=1.0) -> 'PointCloudProcessor':
