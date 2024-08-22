@@ -9,13 +9,23 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
   
+  <depend>rclcpp</depend>
+  <depend>rclpy</depend>
   <depend>sensor_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
   <depend>cv_bridge</depend>
+  <depend>image_geometry</depend>
+  <depend>nav2_costmap_2d</depend>
+  <depend>tf2_ros</depend>
+  <depend>pluginlib</depend>
+  <depend>pcl_ros</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
 
   <export>
+    <costmap_2d plugin="${prefix}/rm_safe_obstacles_layer.xml" />
     <build_type>ament_cmake</build_type>
   </export>
 </package>

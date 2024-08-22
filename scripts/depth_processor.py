@@ -64,6 +64,12 @@ class DepthProcessorNode(Node):
             10
         )
 
+        self.publisher_safe_object_points = self.create_publisher(
+            PointCloud2,
+            f'/{self.robot_name}/safe_obstacle_points',
+            10
+        )
+
         # create a timer for init_transforms
         self.timer = self.create_timer(0.33, self.__init_transforms) #30 Hz
 
@@ -118,11 +124,31 @@ class DepthProcessorNode(Node):
         # realsense: using depth image aligned with rgb:
         # transform to depth frame:
         # NOTE: there is no actual need to transform it back since message contains frame id that can be used by nav2
+        self.__depth_color_tranform.transform_points(point_cloud, inverse=True)
+
+        msg_filtered = point_cloud.to_PointCloud2(msg_time=self.get_clock().now().to_msg())
+
+        self.publisher_depth_cloud.publish(msg_filtered)
+
+        ################ publish points that only belong to obstacle #################
+        self.__depth_image_in_color_frame.from_img_message(msg)
+
+        self.__depth_image_in_color_frame.apply_filter(self.__filter_mask.image, keep_only_filtered=True)
+
+        point_cloud = self.__depth_image_in_color_frame.to_3D(
+            z_lim=3.0,
+            z_channel=0,
+            z_mul=0.001
+        )
+        # NOTE: these points are not transformed back to depth frame so
+        # both lidar processor and depth processor would publish in same frame
         #self.__depth_color_tranform.transform_points(point_cloud, inverse=True)
+        
+        # TODO if slow, remove redundant points (keep only XY projection by removing all points with duplicate X and Y)
+        
+        msg_obstacle_only = point_cloud.to_PointCloud2(msg_time=self.get_clock().now().to_msg())
 
-        msg = point_cloud.to_PointCloud2(msg_time=self.get_clock().now().to_msg())
-
-        self.publisher_depth_cloud.publish(msg)
+        self.publisher_safe_object_points.publish(msg_obstacle_only)
 
     def RGB_camera_info_callback(self, msg:CameraInfo):
         #self.__depth_pc_processor.set_camera_info(msg, overwrite=False)
