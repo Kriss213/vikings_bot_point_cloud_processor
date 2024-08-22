@@ -14,7 +14,7 @@ RmSafeObstaclesLayer::RmSafeObstaclesLayer(){
 void RmSafeObstaclesLayer::onInitialize() {
   auto node = node_.lock(); 
   declareParameter("enabled", rclcpp::ParameterValue(true));
-  declareParameter("point_topic", rclcpp::ParameterValue(std::string("")));
+  declareParameter("point_topic", rclcpp::ParameterValue(std::string("/safe_obstacle_points")));
   declareParameter("inflation_radius", rclcpp::ParameterValue(5));
   
   node->get_parameter(name_ + "." + "enabled", enabled_);
