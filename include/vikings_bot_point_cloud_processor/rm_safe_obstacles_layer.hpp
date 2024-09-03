@@ -37,6 +37,7 @@ public:
 
 	std::string point_topic_; //PointCloud2 topic for points to clear
 	int inflation_radius_; // clearable point inflation radius in px
+	int buffer_time_limit_; // how long a point should be kept clear even if safe obstacle is out of sight
 	
 
 private:
@@ -44,8 +45,22 @@ private:
 	
 	rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr point_subscription_;
     std::mutex mutex_;
-    std::vector<std::pair<unsigned int, unsigned int>> clear_indices_;
+
+	struct pair_hash {
+		template <class T1, class T2>
+		std::size_t operator()(const std::pair<T1, T2>& p) const {
+			auto hash1 = std::hash<T1>{}(p.first);
+			auto hash2 = std::hash<T2>{}(p.second);
+			return hash1 ^ hash2; // Combine the two hash values
+		}
+	};
+
+    std::unordered_set<std::pair<unsigned int, unsigned int>, pair_hash> clear_indices_;
 	std::string costmap_frame_;
+	
+	// A buffer to store map indices that need to be deleted
+	// [ <nx, ny, time_stamp>, <nx, ny, time_stamp> ...]
+	std::vector<std::vector<unsigned int>> indice_time_buffer_;
 };
 
 }
