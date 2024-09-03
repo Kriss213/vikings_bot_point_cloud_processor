@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import rclpy
+import rclpy.qos
 from sensor_msgs.msg import PointCloud2, LaserScan, CameraInfo, Image
 from rclpy.node import Node
 from tf2_ros import Buffer, TransformListener
@@ -50,21 +51,15 @@ class LidarProcessorNode(Node):
             self.filter_mask_callback,
             10
         )
-      
-        self.publisher_lidar_filtered = self.create_publisher(
-            LaserScan,
-            f'/{self.robot_name}/lidar_scan_filtered',
-            10
-        )
 
         self.publisher_safe_object_points = self.create_publisher(
             PointCloud2,
             f'/{self.robot_name}/safe_obstacle_points',
-            10
+            rclpy.qos.qos_profile_sensor_data
         )
 
         # create a timer for init_transforms
-        self.timer = self.create_timer(0.33, self.__init_static_transforms) #30 Hz
+        self.timer = self.create_timer(0.033, self.__init_static_transforms) #30 Hz
     
     def lidar_scan_callback(self, msg:LaserScan):
         self.__lidar_frame = msg.header.frame_id
@@ -81,47 +76,29 @@ class LidarProcessorNode(Node):
         pc_proc = self.__lidar_pc_processor
         transform = self.__lidar_color_tranform
         
-        pc_proc.from_LaserScan(msg)
-
-        # transform to color frame
-        transform.transform_points(pc_proc)
-
-        if self.__filter_mask != None:
-            pc_proc.apply_filter(
-                filter_mask=self.__filter_mask.image,
-            ) # filtered points
-
-        
-        #transform back to lidar frame:
-        transform.transform_points(pc_proc, inverse=True)
-
-        # convert 3D points to LaserScan
-        new_msg = pc_proc.to_LaserScan(msg_time=self.get_clock().now().to_msg())
-
-        # publish
-        self.publisher_lidar_filtered.publish(new_msg)
-
         #=====================================================
         # using the same object because it needs other properties set e.g camera info
         # === Get points representing safe objects ===
         pc_proc.from_LaserScan(msg)
         
         # transform to color frame
-        self.__lidar_color_tranform.transform_points(pc_proc)
+        transform.transform_points(pc_proc)
 
         # get inverse of filter mask
         if self.__filter_mask == None:
             return
         inverese_filter_mask = 1 - self.__filter_mask.image
-        pc_proc.apply_filter(filter_mask=inverese_filter_mask, keep_only_filtered=True, z_max=2.5) # do not consider point farther that 2.5 m away
+        #keep_only_filtered - drop points that are out of camera's (and filter mask) FOV
+        pc_proc.apply_filter(filter_mask=inverese_filter_mask, keep_only_filtered=True, z_max=2.5, omit_lidar=True) # do not consider point farther that 2.5 m away
 
         # furher transformations are handled by RmSafeObstacles plugin
 
         #convert to pointCloud2 message
-        new_msg = pc_proc.to_PointCloud2(msg_time=self.get_clock().now().to_msg())
+        obstacle_points_msg = pc_proc.to_PointCloud2(msg_time=self.get_clock().now().to_msg())
 
-        #publish
-        self.publisher_safe_object_points.publish(new_msg)
+        if len(obstacle_points_msg.data) != 0:
+           # avoid publishing empty messages
+           self.publisher_safe_object_points.publish(obstacle_points_msg)
 
     def RGB_camera_info_callback(self, msg:CameraInfo):
         self.__lidar_pc_processor.set_camera_info(msg, overwrite=False)
