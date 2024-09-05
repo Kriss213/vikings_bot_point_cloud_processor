@@ -16,10 +16,12 @@ void RmSafeObstaclesLayer::onInitialize() {
   declareParameter("enabled", rclcpp::ParameterValue(true));
   declareParameter("point_topic", rclcpp::ParameterValue(std::string("/safe_obstacle_points")));
   declareParameter("inflation_radius", rclcpp::ParameterValue(5));
-  
+  declareParameter("buffer_time_limit", rclcpp::ParameterValue(10));
+
   node->get_parameter(name_ + "." + "enabled", enabled_);
   node->get_parameter(name_ + "." + "point_topic", point_topic_);
   node->get_parameter(name_ + "." + "inflation_radius", inflation_radius_);
+  node->get_parameter(name_ + "." + "buffer_time_limit", buffer_time_limit_);
   
   // subscribe to topic
   point_subscription_ = node->create_subscription<sensor_msgs::msg::PointCloud2>(
@@ -56,22 +58,64 @@ void RmSafeObstaclesLayer::updateCosts(nav2_costmap_2d::Costmap2D & master_grid,
 
     std::lock_guard<std::mutex> lock(mutex_);
 
+    if (point_time_buffer_.empty()) {
+      return; // nothing to do
+    }
+
+    int current_time = getCurrentTime();
+
     int map_width = layered_costmap_->getCostmap()->getSizeInCellsX();
     int map_height = layered_costmap_->getCostmap()->getSizeInCellsY();
+    
+    // a vector of points that will need to be inflated
+    std::vector<std::pair<unsigned int, unsigned int>> inflatable_points;
 
-    for (const auto& index : clear_indices_) {
-      // clear pixel
-      master_grid.setCost(index.first, index.second, FREE_SPACE);
+    // parse stored point clouds
+    RCLCPP_DEBUG(rclcpp::get_logger("nav2_costmap_2d"), "Parsing %ld point clouds from pointcloud time buffer", point_time_buffer_.size());
+    for (auto it=point_time_buffer_.begin(); it!=point_time_buffer_.end();) {
+      //bool increase_it = true;
+      PointCloud pc_w_timestamp = *it;
+      sensor_msgs::msg::PointCloud2::SharedPtr pc2 = pc_w_timestamp.pointcloud_msg;
+      int timestamp = pc_w_timestamp.timestamp;
 
-      // inflate to clear around the pixel as well
+      if (current_time - timestamp > buffer_time_limit_){ //cast to uint to prevent warning
+        it = point_time_buffer_.erase(it);
+      } else{
+        ++it;
+        //  pc2 is in map frame, it needs to be transformed to costmap frame
+        //  because costmap can change its position (like local costmap)
+        
+        sensor_msgs::msg::PointCloud2 transformed_cloud_costmap = transformToFrame(pc2, costmap_frame_);
+
+        // get iterators for point cloud
+        sensor_msgs::PointCloud2ConstIterator<float> iter_x(transformed_cloud_costmap, "x");
+        sensor_msgs::PointCloud2ConstIterator<float> iter_y(transformed_cloud_costmap, "y");
+
+        // parse point cloud
+        for (; iter_x != iter_x.end(); ++iter_x, ++iter_y) {
+          unsigned int mx, my; // costmap coordinates
+          if (layered_costmap_->getCostmap()->worldToMap(*iter_x, *iter_y, mx, my)) {
+            std::pair<unsigned int, unsigned int> indice = {mx, my};
+
+            if (inflatable_points_.find(indice) == inflatable_points_.end()) {
+              inflatable_points_.insert(indice); // prevent duplicates
+              master_grid.setCost(mx, my, FREE_SPACE);
+            }
+          }
+        }
+      }
+    }
+
+    for (const auto& map_point : inflatable_points_) {   
+    // inflate to clear around the pixel as well
       for (int dx=-inflation_radius_; dx <= inflation_radius_; ++dx) {
         for (int dy=-inflation_radius_; dy <= inflation_radius_; ++dy) {
           // check if cell is within inflation radius
           if (std::sqrt(dx*dx + dy*dy) > inflation_radius_) {continue;}
 
           // new costmap indices:
-          int nx = index.first + dx;
-          int ny = index.second + dy;
+          int nx = map_point.first + dx;
+          int ny = map_point.second + dy;
 
           // check if new indices are within costmap bounds
           if (nx < 0 || nx > map_width || ny < 0 || ny > map_height) {continue;}
@@ -82,38 +126,38 @@ void RmSafeObstaclesLayer::updateCosts(nav2_costmap_2d::Costmap2D & master_grid,
         }
       }
     }
-    clear_indices_.clear();
-
+    //clear_indices_.clear();
+    inflatable_points_.clear();
 }
   
 void RmSafeObstaclesLayer::PointCloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
-
     std::lock_guard<std::mutex> lock(mutex_);
-    
+
+    int current_time = getCurrentTime();
+
+    PointCloud pc_w_time ={msg, current_time};
+
+    // insert newest cloud at beginning
+    point_time_buffer_.insert(point_time_buffer_.begin(), pc_w_time);
+    // NOTE: if slow, use deque instead
+}
+
+sensor_msgs::msg::PointCloud2 RmSafeObstaclesLayer::transformToFrame(const sensor_msgs::msg::PointCloud2::SharedPtr msg, std::string frame) {
     geometry_msgs::msg::TransformStamped transform_stamped;
     sensor_msgs::msg::PointCloud2 transformed_cloud;
     try {
-        transform_stamped = tf_->lookupTransform(costmap_frame_, msg->header.frame_id, tf2::TimePointZero);
-        
+        transform_stamped = tf_->lookupTransform(frame, msg->header.frame_id, tf2::TimePointZero);
+
     } catch (tf2::TransformException &ex) {
         RCLCPP_WARN(rclcpp::get_logger("nav2_costmap_2d"), "Transform failed: %s", ex.what());
-        return;
+        return transformed_cloud; // returns empty cloud
     }
     
     pcl_ros::transformPointCloud(costmap_frame_, transform_stamped, *msg, transformed_cloud);
-
-    sensor_msgs::PointCloud2ConstIterator<float> iter_x(transformed_cloud, "x");
-    sensor_msgs::PointCloud2ConstIterator<float> iter_y(transformed_cloud, "y");
-    sensor_msgs::PointCloud2ConstIterator<float> iter_z(transformed_cloud, "z");
-    
-    
-    for (; iter_x != iter_x.end(); ++iter_x, ++iter_y, ++iter_z) {
-      unsigned int mx, my; // costmap coordinates
-      if (layered_costmap_->getCostmap()->worldToMap(*iter_x, *iter_y, mx, my)) {
-        clear_indices_.emplace_back(mx, my);
-      }   
-    }
+    return transformed_cloud;
 }
+
+
 }  // namespace vikings_bot_point_cloud_processor
 
 

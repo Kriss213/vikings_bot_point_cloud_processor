@@ -24,6 +24,7 @@ class DepthProcessorNode(Node):
         self.__color_frame = None
         self.__depth_frame = None
         self.__depth_color_tranform = None
+        self.__color_map_transform = None
 
         self._TF_buffer = Buffer()
         self._tf_listener = TransformListener(self._TF_buffer, self)
@@ -41,7 +42,8 @@ class DepthProcessorNode(Node):
         # DEPTH IMAGE ALIGNED IN RGB FRAME:
         self.subscription_depth_img_in_color_frame = self.create_subscription(
                 Image,
-                f'/{self.robot_name}/camera/aligned_depth_to_color/image_raw', # for sim assume that this is in color frame
+                f'/{self.robot_name}/camera/aligned_depth_to_color/image_raw', #real
+                #f'/{self.robot_name}/camera/depth/image_rect_raw', #sim
                 self.depth_image_in_color_frame_callback,
                 10
             )
@@ -58,97 +60,57 @@ class DepthProcessorNode(Node):
             10
         )
         # Create publisher
-        self.publisher_depth_cloud = self.create_publisher(
-            PointCloud2,
-            f'/{self.robot_name}/camera/filtered/depth/points',
-            10
-        )
-
         self.publisher_safe_object_points = self.create_publisher(
             PointCloud2,
             f'/{self.robot_name}/safe_obstacle_points',
-            10
+            rclpy.qos.qos_profile_sensor_data
         )
 
         # create a timer for init_transforms
-        self.timer = self.create_timer(0.33, self.__init_transforms) #30 Hz
+        self.timer = self.create_timer(0.033, self.__init_transforms) #30 Hz
 
     def depth_point_cloud_callback(self, msg:PointCloud2):
         self.__depth_frame = msg.header.frame_id
         self.destroy_subscription(self.subscription_depth_point_cloud)
-        return
-        # NOTE: not using the code below, because filtering depth image in color frame and transforming it to point cloud is a lot faster
-        """
-        if not self.__depth_pc_processor.is_camera_info_set or self.__depth_color_tranform == None or not self.__filter_mask.is_image_set:
-            return
-        
-        pc_proc = self.__depth_pc_processor
-        transform = self.__depth_color_tranform
-        
-        pc_proc.from_PointCloud2(msg)
 
-        # transform to color frame
-        transform.transform_points(pc_proc)
-        
-        if self.__filter_mask != None:
-            pc_proc.apply_filter(
-                filter_mask=self.__filter_mask.image,
-            ) # filtered points
-
-        #transform back to depth frame:
-        transform.transform_points(pc_proc, inverse=True)
-
-        # convert 3D points to PointCloud2 Message
-        new_msg = pc_proc.to_PointCloud2(msg_time=self.get_clock().now().to_msg())
-
-        # publish
-        self.publisher_depth_cloud.publish(new_msg)
-        """
 
     def depth_image_in_color_frame_callback(self, msg:Image):
         if not self.__depth_image_in_color_frame.is_camera_info_set or self.__depth_color_tranform == None or not self.__filter_mask.is_image_set:
             return
-        
-        self.__depth_image_in_color_frame.from_img_message(msg)
-
-        self.__depth_image_in_color_frame.apply_filter(self.__filter_mask.image)
-
-        point_cloud = self.__depth_image_in_color_frame.to_3D(
-            z_lim=3.0,
-            z_channel=0,
-            z_mul=0.001
-        )
-
-        # simulation: using depth image which is in depth frame:
-        # no transform necessary
-        # realsense: using depth image aligned with rgb:
-        # transform to depth frame:
-        # NOTE: there is no actual need to transform it back since message contains frame id that can be used by nav2
-        self.__depth_color_tranform.transform_points(point_cloud, inverse=True)
-
-        msg_filtered = point_cloud.to_PointCloud2(msg_time=self.get_clock().now().to_msg())
-
-        self.publisher_depth_cloud.publish(msg_filtered)
-
+        if self.__color_map_transform == None:
+            self.__color_map_transform = FrameTransformer(msg.header.frame_id, "map")
+        # find color <--> map transform
+        try:
+            self.__color_map_transform.find_transform(TF_buffer=self._TF_buffer)
+        except:
+            self.get_logger().warn("Couldn't find transforms from color to map, dropping message")
+            return
         ################ publish points that only belong to obstacle #################
         self.__depth_image_in_color_frame.from_img_message(msg)
 
-        self.__depth_image_in_color_frame.apply_filter(self.__filter_mask.image, keep_only_filtered=True)
+        # invert filter mask
+        filter_mask_inv = 1 - self.__filter_mask.image
+
+        self.__depth_image_in_color_frame.apply_filter(filter_mask_inv, remove_above_mean=True)
 
         point_cloud = self.__depth_image_in_color_frame.to_3D(
             z_lim=3.0,
             z_channel=0,
             z_mul=0.001
         )
-        # NOTE: these points are not transformed back to depth frame so
-        # both lidar processor and depth processor would publish in same frame
-        #self.__depth_color_tranform.transform_points(point_cloud, inverse=True)
         
-        # TODO if slow, remove redundant points (keep only XY projection by removing all points with duplicate X and Y)
-        
-        msg_obstacle_only = point_cloud.to_PointCloud2(msg_time=self.get_clock().now().to_msg())
+        # Transform points to map frame
+        self.__color_map_transform.transform_points(point_cloud)
+      
+        obstacle_points_msg = point_cloud.to_PointCloud2(
+            msg_time=self.get_clock().now().to_msg(),
+            projection=2, # project points into XY plane
+            reduce_density=15)# keep only every 15th point because
+                              # points from depth cloud are very dense
 
-        self.publisher_safe_object_points.publish(msg_obstacle_only)
+        if len(obstacle_points_msg.data) != 0:
+            # avoid publishing empty messages
+            self.publisher_safe_object_points.publish(obstacle_points_msg)
 
     def RGB_camera_info_callback(self, msg:CameraInfo):
         #self.__depth_pc_processor.set_camera_info(msg, overwrite=False)

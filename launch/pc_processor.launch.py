@@ -2,7 +2,7 @@
 from launch import LaunchDescription
 from launch_ros.actions import Node, SetParameter
 from launch.actions import DeclareLaunchArgument, GroupAction
-from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.substitutions import LaunchConfiguration, PythonExpression, OrSubstitution
 from launch.conditions import IfCondition
 
 
@@ -46,11 +46,11 @@ def generate_launch_description():
     filter_lidar_arg = DeclareLaunchArgument(
         'filter_lidar',
         default_value='False',
-        description="Filter lidar data (LaserScan) based on semantic segmentation model.")
+        description="Clear costmap based on lidar and depth cam data, and semantic segmentation model.")
     filter_depth_cam_arg = DeclareLaunchArgument(
         'filter_depth_cam',
         default_value='False',
-        description="Filter depth camera data (PointCloud2) based on semantic segmentation model.")
+        description="Clear costmap based on only depth cam data, and semantic segmentation model.")
     perf_seg_sem_arg = DeclareLaunchArgument(
         'perf_seg_sem',
         default_value='False',
@@ -140,7 +140,7 @@ def generate_launch_description():
         executable='depth_processor.py',
         namespace=robot_name,
         name='data_filter_depth_processor',
-        condition=IfCondition(filter_depth_cam),
+        condition=IfCondition(OrSubstitution(filter_depth_cam,filter_lidar)),
         output='screen',
         parameters=[{
             'use_sim_time':use_sim_time,

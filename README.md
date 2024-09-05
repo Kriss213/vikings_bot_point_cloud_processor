@@ -20,8 +20,8 @@ ros2 launch vikings_bot_point_cloud_processor pc_processor.launch.py robot_name:
 ### Parameters
 * __```robot_name```__ - Used in namespace (default: default_robot_name).
 * ```use_sim_time``` - Use simulation or real time (default: false).
-* __```filter_lidar```__ - Filter lidar data (LaserScan) based on semantic segmentation model (default: false).
-* __```filter_depth_cam```__ - Filter depth camera data (PointCloud2) based on semantic segmentation model (default false).
+* __```filter_lidar```__ - Clear costmap based on lidar and depth cam data, and semantic segmentation model. (default: false).
+* __```filter_depth_cam```__ - Clear costmap based on only depth cam data, and semantic segmentation model. (default false).
 * __```perf_seg_sem```__ - Perform semantic segmentation and publish results over topic (defaulft: false).
 * __```safe_classes```__ - A list of semantic segmentation model classes that are considered safe (default: [-1]). See list of classes.
 *  ```vis_sem_seg``` - Visualize semantic segmentation in seperate window (ROS2 Image topic with same info will be published regardless of this argument) (default: false).
@@ -38,6 +38,7 @@ This ROS2 package comes with ROS2 Nav2 Costmap2D plugin that clears points from 
 * ```enabled``` - default: true - Enable/disable plugin.
 * ```point_topic``` - default: '/safe_obstacle_points' - Topic over which removable points are published as PointCloud2. Set this to same topic as default but with correct namespace.
 * ```inflation_radius``` - default: 5 - Clear extra pixels around each clearable point.
+* ```buffer_time_limit``` - default: 15 - How long to keep costmap area clear after safe obstacle is out of sight.
 
 ## ROS2 nodes and published topics (listed without robot name in namespace):
 #### ```/data_filter_camera_processor```
@@ -58,17 +59,15 @@ Filters lidar data - removes points belonging to any of safe classes.
 __Launch condition:__ ```filter_lidar``` is true.
 
 __Topics:__
-* ```/lidar_scan_filtered``` - sensor_msgs.msg.LaserScan - Lidar points where points that belong to safe obstacle are removed.
 * ```/safe_obstacle_points``` - sensor_msgs.msg.PointCloud2 - Only those Lidar points that belong to safe obstacle. This topic is used by RmSafeObstacleLayer plugin to clear costmap.
 <hr>
 
 #### ```data_filter_depth_processor```
 Filters Realsense depth camera data - removes points belonging to any of safe classes.
 
-__Launch condition:__ ```filter_depth``` is true.
+__Launch condition:__ ```filter_depth``` or ```filter_lidar``` is true.
 
 __Topics:__
-* ```/camera/filtered/depth/points``` - sensor_msgs.msg.PointCloud2 - Depth points where points that belong to safe obstacle are removed.
 * ```/safe_obstacle_points``` - sensor_msgs.msg.PointCloud2 - Only those depth points that belong to safe obstacle. This topic is used by RmSafeObstacleLayer plugin to clear costmap.
 
 

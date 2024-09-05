@@ -35,17 +35,55 @@ public:
 
 	virtual bool isClearable() {return true;}
 
+	/**
+	* @brief  Get current system time in seconds.
+   	* @return Current time in seconds as int.
+   	*/
+	static int getCurrentTime() {
+		auto now = std::chrono::system_clock::now();
+    	auto now_in_seconds = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
+    	int current_time = static_cast<int>(now_in_seconds);
+
+		return current_time;
+	}
+
+	/**
+	* @brief Transform sensor_msgs PointCloud2 to different frame.
+	* @param msg PointCloud2 message.
+	* @param frame Frame to which point cloud needs to be transformed.
+   	* @return PointCloud2 message transformed to new frame.
+   	*/
+	sensor_msgs::msg::PointCloud2 transformToFrame(const sensor_msgs::msg::PointCloud2::SharedPtr msg, std::string frame);
+
 	std::string point_topic_; //PointCloud2 topic for points to clear
 	int inflation_radius_; // clearable point inflation radius in px
-	
+	int buffer_time_limit_; // how long a point should be kept clear even if safe obstacle is out of sight
 
 private:
 	void PointCloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
 	
 	rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr point_subscription_;
     std::mutex mutex_;
-    std::vector<std::pair<unsigned int, unsigned int>> clear_indices_;
+
+	struct pair_hash {
+		template <class T1, class T2>
+		std::size_t operator()(const std::pair<T1, T2>& p) const {
+			auto hash1 = std::hash<T1>{}(p.first);
+			auto hash2 = std::hash<T2>{}(p.second);
+			return hash1 ^ hash2; // Combine the two hash values
+		}
+	};
+
+	struct PointCloud {
+		sensor_msgs::msg::PointCloud2::SharedPtr pointcloud_msg;
+		int timestamp; //not using message time 
+	};
+
+	std::unordered_set<std::pair<unsigned int, unsigned int>, pair_hash> inflatable_points_;
 	std::string costmap_frame_;
+
+	// A buffer to store point clouds and time stamps that need to be deleted
+	std::vector<PointCloud> point_time_buffer_;
 };
 
 }

@@ -138,12 +138,12 @@ class ImageProcessor:
         
         return np.frombuffer(self._data_raw, dtype=self.__endcodings_dtypes[self._encoding]).reshape(self._height, self._width, self._channels) 
         
-    def apply_filter(self, filter_mask:np.ndarray, keep_only_filtered:bool=False) -> None:
+    def apply_filter(self, filter_mask:np.ndarray, remove_above_mean:bool=False) -> None:
         """
         Filter image based on segmentation model result.
         
         :param filter_mask: A np.ndarray like image with values 0 (delete) and 1 (keep)
-        :param keep_only_filtered: If True keep only those points that pass the filter.
+        :param remove_above_mean: __Assuming a depth image__. If True, keep only points that are closer than mean distance after filtering. This is to minimize noise points behind an object.
 
         :return None:
         """
@@ -156,9 +156,11 @@ class ImageProcessor:
             raise Exception(f"Camera info shape {self.image.shape} must match with filter mask shape {filter_mask.shape}")
         
         # apply filter
-        if keep_only_filtered:
-            filter_mask = 1 - filter_mask #invert
         self.image = filter_mask * self.image
+
+        if remove_above_mean:
+            non_zero_mean = np.mean(self.image[self.image > 0])
+            self.image[self.image > non_zero_mean] = 0
 
     def to_3D(self, z_lim:float=float('inf'), z_channel:int=0, z_mul:float=1.0) -> 'PointCloudProcessor':
         """
@@ -174,8 +176,7 @@ class ImageProcessor:
         if not self.is_camera_info_set:#(np.any(self.__dx_over_fx) and np.any(self.__dy_over_fy)):
             raise Exception("Use 'set_camera_info()' before using 'to_3D()'!")
         
-        else:
-            depth_values = (self.image[:, :, z_channel] * z_mul).flatten('F')
+        depth_values = (self.image[:, :, z_channel] * z_mul).flatten('F')
 
 
         # Calculate point coordinates
@@ -519,13 +520,14 @@ class PointCloudProcessor:
             self.is_camera_info_set= True
         return
 
-    def apply_filter(self, filter_mask:np.ndarray, z_max:float=float('inf'), keep_only_filtered:bool=False) -> None:
+    def apply_filter(self, filter_mask:np.ndarray, z_max:float=float('inf'), keep_only_filtered:bool=False, omit_lidar:bool=False) -> None:
         """
         Filter points based on segmentation model result.
         
         :param z_max: Limit point depth (default=float('inf')).
         :param filter_mask: Binary matrix with points to keep (1) and points to delete (0).
         :param keep_only_filtered: If True keep only those points that pass the filter.
+        :param omit_lidar: If True, do not populate PointCloudProcessor.points with nan values to keep correct LaserScan structure. If True, afterwards converting to LaserScan wil result in invalid data.
         
         :return None:
         """
@@ -576,7 +578,7 @@ class PointCloudProcessor:
 
         
         z_cond = (z <= z_max) & (z != 0)
-        if not self.__init_from_LaserScan_msg:
+        if not self.__init_from_LaserScan_msg or omit_lidar:
             # remove points that are farther than z_lim or have 0 depth
             u_filtered = u_unlim[z_cond]
             v_filtered = v_unlim[z_cond]
@@ -598,19 +600,25 @@ class PointCloudProcessor:
 
         self._points = np.column_stack([x, y, z])
 
-    def to_PointCloud2(self, msg_time:str=rclpy.clock.Clock().now().to_msg()) -> PointCloud2:
+    def to_PointCloud2(self, msg_time:str=rclpy.clock.Clock().now().to_msg(), projection:int=None, reduce_density:int=1) -> PointCloud2:
         """
         Create a ROS2 PointCloud2 message.
         
         :param msg_time: Message time to use.
+        :param projection: Project points to plane. 0 - YZ, 1 - XZ, 2 - XY. Other values not accepted
+        :param reduce_density: Keep only every ith element (1 = no reduction).
 
         :return point_cloud_msg: A PointCloud2 message.
         """
-        
-        point_cloud_msg = PointCloud2()
+        if type(reduce_density) != int or reduce_density < 1:
+            raise Exception(f"reduce_density factor must be a positive integer (got {reduce_density}).")
 
-        point_cloud_msg.width = self.points.shape[0]
-        point_cloud_msg.height = 1
+        if projection not in (None, 0, 1, 2):
+            raise Exception(f"Provide correct projection value: 0 - YZ, 1 - XZ, 2 - XY. Got {projection}")
+
+        point_cloud_msg = PointCloud2()
+        points = self._points
+
         point_cloud_msg.fields = [
             PointField(name='x', offset=0, datatype=7, count=1),
             PointField(name='y', offset=4, datatype=7, count=1),
@@ -622,9 +630,25 @@ class PointCloudProcessor:
         point_cloud_msg.point_step = point_step
         point_cloud_msg.row_step = point_step * point_cloud_msg.width * point_cloud_msg.height
         
-        point_cloud_msg.is_dense = not (np.any(np.isnan(self._points)) or np.any(np.isinf(self._points)) or np.any(np.isneginf(self._points)) )
+        if projection:
+            # remove points with duplicate xy
+            # (set precision to 1 cm for calculating duplicates)
+            _, indices = np.unique(np.around(points,decimals=2)[:,:2], axis=0, return_index=True)
+            
+            points = points[indices]
 
-        msg_data_np = self._points.astype(np.float32).view(np.uint8).reshape(-1)
+            #flatten all points to same height
+            points[:, projection]  = 0
+        
+        # get every reduce_density point
+        points = points[::reduce_density]
+
+        point_cloud_msg.is_dense = not (np.any(np.isnan(points)) or np.any(np.isinf(points)) or np.any(np.isneginf(self.points)) )
+        # set point cloud size after manipulations
+        point_cloud_msg.width = points.shape[0]
+        point_cloud_msg.height = 1
+
+        msg_data_np = points.astype(np.float32).view(np.uint8).reshape(-1)
 
         # Using array and memoryview to *significantly* improve performance over numpy.ndarray.tolist()
         mem_view = memoryview(msg_data_np)
