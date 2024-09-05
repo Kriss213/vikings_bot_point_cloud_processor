@@ -138,11 +138,12 @@ class ImageProcessor:
         
         return np.frombuffer(self._data_raw, dtype=self.__endcodings_dtypes[self._encoding]).reshape(self._height, self._width, self._channels) 
         
-    def apply_filter(self, filter_mask:np.ndarray) -> None:
+    def apply_filter(self, filter_mask:np.ndarray, remove_above_mean:bool=False) -> None:
         """
         Filter image based on segmentation model result.
         
         :param filter_mask: A np.ndarray like image with values 0 (delete) and 1 (keep)
+        :param remove_above_mean: __Assuming a depth image__. If True, keep only points that are closer than mean distance after filtering. This is to minimize noise points behind an object.
 
         :return None:
         """
@@ -156,6 +157,10 @@ class ImageProcessor:
         
         # apply filter
         self.image = filter_mask * self.image
+
+        if remove_above_mean:
+            non_zero_mean = np.mean(self.image[self.image > 0])
+            self.image[self.image > non_zero_mean] = 0
 
     def to_3D(self, z_lim:float=float('inf'), z_channel:int=0, z_mul:float=1.0) -> 'PointCloudProcessor':
         """
@@ -171,8 +176,7 @@ class ImageProcessor:
         if not self.is_camera_info_set:#(np.any(self.__dx_over_fx) and np.any(self.__dy_over_fy)):
             raise Exception("Use 'set_camera_info()' before using 'to_3D()'!")
         
-        else:
-            depth_values = (self.image[:, :, z_channel] * z_mul).flatten('F')
+        depth_values = (self.image[:, :, z_channel] * z_mul).flatten('F')
 
 
         # Calculate point coordinates
@@ -596,18 +600,21 @@ class PointCloudProcessor:
 
         self._points = np.column_stack([x, y, z])
 
-    def to_PointCloud2(self, msg_time:str=rclpy.clock.Clock().now().to_msg(), top_projection:bool=False, reduce_density:int=1) -> PointCloud2:
+    def to_PointCloud2(self, msg_time:str=rclpy.clock.Clock().now().to_msg(), projection:int=None, reduce_density:int=1) -> PointCloud2:
         """
         Create a ROS2 PointCloud2 message.
         
         :param msg_time: Message time to use.
-        :param top_projection: Project points to plane (view from top).
+        :param projection: Project points to plane. 0 - YZ, 1 - XZ, 2 - XY. Other values not accepted
         :param reduce_density: Keep only every ith element (1 = no reduction).
 
         :return point_cloud_msg: A PointCloud2 message.
         """
         if type(reduce_density) != int or reduce_density < 1:
             raise Exception(f"reduce_density factor must be a positive integer (got {reduce_density}).")
+
+        if projection not in (None, 0, 1, 2):
+            raise Exception(f"Provide correct projection value: 0 - YZ, 1 - XZ, 2 - XY. Got {projection}")
 
         point_cloud_msg = PointCloud2()
         points = self._points
@@ -623,7 +630,7 @@ class PointCloudProcessor:
         point_cloud_msg.point_step = point_step
         point_cloud_msg.row_step = point_step * point_cloud_msg.width * point_cloud_msg.height
         
-        if top_projection:
+        if projection:
             # remove points with duplicate xy
             # (set precision to 1 cm for calculating duplicates)
             _, indices = np.unique(np.around(points,decimals=2)[:,:2], axis=0, return_index=True)
@@ -631,7 +638,7 @@ class PointCloudProcessor:
             points = points[indices]
 
             #flatten all points to same height
-            points[:, 1]  = 0
+            points[:, projection]  = 0
         
         # get every reduce_density point
         points = points[::reduce_density]

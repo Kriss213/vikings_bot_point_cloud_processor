@@ -27,6 +27,8 @@ class LidarProcessorNode(Node):
         self.__lidar_frame = None
         self.__lidar_color_tranform = None
 
+        self.__color_map_transform = None
+
         self._TF_buffer = Buffer()
         self._tf_listener = TransformListener(self._TF_buffer, self)
 
@@ -64,32 +66,44 @@ class LidarProcessorNode(Node):
     def lidar_scan_callback(self, msg:LaserScan):
         self.__lidar_frame = msg.header.frame_id
 
+        if self.__color_map_transform == None and self.__color_frame:
+            self.__color_map_transform = FrameTransformer(self.__color_frame, "map")
+        # find color <--> map transform
+        try:
+            self.__color_map_transform.find_transform(TF_buffer=self._TF_buffer)
+        except:
+            self.get_logger().warn("Couldn't find transforms from color to map, dropping message")
+            return
+
         # Check if necessary values are initialized
         conditions = [
             self.__lidar_pc_processor.is_camera_info_set,
             self.__lidar_color_tranform != None,
             self.__filter_mask.is_image_set,
+            self.__color_map_transform != None
         ]
         if not reduce(and_, conditions):
             return
   
         pc_proc = self.__lidar_pc_processor
-        transform = self.__lidar_color_tranform
+        #transform = self.__lidar_color_tranform
         
         #=====================================================
         # using the same object because it needs other properties set e.g camera info
         # === Get points representing safe objects ===
         pc_proc.from_LaserScan(msg)
-        
-        # transform to color frame
-        transform.transform_points(pc_proc)
 
+        # transform to color frame
+        self.__lidar_color_tranform.transform_points(pc_proc)
         # get inverse of filter mask
         if self.__filter_mask == None:
             return
         inverese_filter_mask = 1 - self.__filter_mask.image
         #keep_only_filtered - drop points that are out of camera's (and filter mask) FOV
         pc_proc.apply_filter(filter_mask=inverese_filter_mask, keep_only_filtered=True, z_max=2.5, omit_lidar=True) # do not consider point farther that 2.5 m away
+
+        # transform to map frame
+        self.__color_map_transform.transform_points(pc_proc)
 
         # furher transformations are handled by RmSafeObstacles plugin
 

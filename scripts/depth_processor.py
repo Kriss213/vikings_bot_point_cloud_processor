@@ -24,6 +24,7 @@ class DepthProcessorNode(Node):
         self.__color_frame = None
         self.__depth_frame = None
         self.__depth_color_tranform = None
+        self.__color_map_transform = None
 
         self._TF_buffer = Buffer()
         self._tf_listener = TransformListener(self._TF_buffer, self)
@@ -41,7 +42,8 @@ class DepthProcessorNode(Node):
         # DEPTH IMAGE ALIGNED IN RGB FRAME:
         self.subscription_depth_img_in_color_frame = self.create_subscription(
                 Image,
-                f'/{self.robot_name}/camera/aligned_depth_to_color/image_raw', # for sim assume that this is in color frame
+                f'/{self.robot_name}/camera/aligned_depth_to_color/image_raw', #real
+                #f'/{self.robot_name}/camera/depth/image_rect_raw', #sim
                 self.depth_image_in_color_frame_callback,
                 10
             )
@@ -75,28 +77,34 @@ class DepthProcessorNode(Node):
     def depth_image_in_color_frame_callback(self, msg:Image):
         if not self.__depth_image_in_color_frame.is_camera_info_set or self.__depth_color_tranform == None or not self.__filter_mask.is_image_set:
             return
-        
+        if self.__color_map_transform == None:
+            self.__color_map_transform = FrameTransformer(msg.header.frame_id, "map")
+        # find color <--> map transform
+        try:
+            self.__color_map_transform.find_transform(TF_buffer=self._TF_buffer)
+        except:
+            self.get_logger().warn("Couldn't find transforms from color to map, dropping message")
+            return
         ################ publish points that only belong to obstacle #################
         self.__depth_image_in_color_frame.from_img_message(msg)
 
         # invert filter mask
         filter_mask_inv = 1 - self.__filter_mask.image
 
-        self.__depth_image_in_color_frame.apply_filter(filter_mask_inv)
+        self.__depth_image_in_color_frame.apply_filter(filter_mask_inv, remove_above_mean=True)
 
         point_cloud = self.__depth_image_in_color_frame.to_3D(
             z_lim=3.0,
             z_channel=0,
             z_mul=0.001
         )
-        # NOTE: these points are not transformed back to depth frame so
-        # both lidar processor and depth processor would publish obstacle PointCloud2 in same frame
-        #self.__depth_color_tranform.transform_points(point_cloud, inverse=True)
         
+        # Transform points to map frame
+        self.__color_map_transform.transform_points(point_cloud)
       
         obstacle_points_msg = point_cloud.to_PointCloud2(
             msg_time=self.get_clock().now().to_msg(),
-            top_projection=True, # project points into XZ plane
+            projection=2, # project points into XY plane
             reduce_density=15)# keep only every 15th point because
                               # points from depth cloud are very dense
 
