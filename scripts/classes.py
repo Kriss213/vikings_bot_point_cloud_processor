@@ -15,6 +15,7 @@ import rclpy
 import time
 from collections import deque
 from cv_bridge import CvBridge
+from sklearn.cluster import DBSCAN
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -599,19 +600,52 @@ class PointCloudProcessor:
         y = ((v_filtered - cy) * z_filtered) / fy
 
         self._points = np.column_stack([x, y, z])
+   
+    def filter_points(self, points:np.ndarray=None, eps:float=0.05, min_samples:int=5, reduce_density:int=1) -> Union[np.ndarray, None]: 
+        """
+        Use DBSCAN to remove noise from point cloud. Returns points if external points are given, None otherwise.
+        Reduce the density of point cloud.
 
-    def to_PointCloud2(self, msg_time:str=rclpy.clock.Clock().now().to_msg(), projection:int=None, reduce_density:int=1) -> PointCloud2:
+        :param points: np.ndarray of points. If not specified, default to instance points.
+        :param eps: (float, optional): The maximum distance between two samples for one to be considered as in the neighborhood of the other. Defaults to 0.05.
+        :param min_samples: (int, optional): Minimum nuber of neigbors needed for point to be considered a core point. Defaults to 5.
+        :param reduce_density: Keep only every ith element (1 = no reduction).
+        """
+        if type(reduce_density) != int or reduce_density < 1:
+            raise Exception(f"reduce_density factor must be a positive integer (got {reduce_density}).")
+
+        rtrn = True
+        if points == None:
+            rtrn = False
+            points = self._points
+
+        if 0 in points.shape:
+            return # empty point cloud
+
+        # get every reduce_density point
+        points = points[::reduce_density]
+
+        db = DBSCAN(eps=eps, min_samples=min_samples).fit(points)
+        labels = db.labels_
+
+        # remove noise points
+        points = points[labels != -1]
+
+
+        if rtrn:
+            return points
+        else:
+            self._points = points
+        
+
+    def to_PointCloud2(self, msg_time:str=rclpy.clock.Clock().now().to_msg(), projection:int=None) -> PointCloud2:
         """
         Create a ROS2 PointCloud2 message.
         
         :param msg_time: Message time to use.
         :param projection: Project points to plane. 0 - YZ, 1 - XZ, 2 - XY. Other values not accepted
-        :param reduce_density: Keep only every ith element (1 = no reduction).
-
         :return point_cloud_msg: A PointCloud2 message.
         """
-        if type(reduce_density) != int or reduce_density < 1:
-            raise Exception(f"reduce_density factor must be a positive integer (got {reduce_density}).")
 
         if projection not in (None, 0, 1, 2):
             raise Exception(f"Provide correct projection value: 0 - YZ, 1 - XZ, 2 - XY. Got {projection}")
@@ -640,8 +674,6 @@ class PointCloudProcessor:
             #flatten all points to same height
             points[:, projection]  = 0
         
-        # get every reduce_density point
-        points = points[::reduce_density]
 
         point_cloud_msg.is_dense = not (np.any(np.isnan(points)) or np.any(np.isinf(points)) or np.any(np.isneginf(self.points)) )
         # set point cloud size after manipulations

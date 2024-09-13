@@ -100,13 +100,14 @@ class DepthProcessorNode(Node):
         
         # Transform points to map frame
         self.__color_map_transform.transform_points(point_cloud)
-      
+
+        # rm noise and reduce density
+        point_cloud.filter_points(reduce_density=15)
+
         obstacle_points_msg = point_cloud.to_PointCloud2(
             msg_time=self.get_clock().now().to_msg(),
-            projection=2, # project points into XY plane
-            reduce_density=15)# keep only every 15th point because
-                              # points from depth cloud are very dense
-
+            projection=2) # project points into XY plane
+        
         if len(obstacle_points_msg.data) != 0:
             # avoid publishing empty messages
             self.publisher_safe_object_points.publish(obstacle_points_msg)
