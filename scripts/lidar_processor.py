@@ -152,11 +152,12 @@ def main(args=None):
     
     try:
         rclpy.spin(lidar_proc_node)
-    except KeyboardInterrupt:
-        pass
+    except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
+        print("Clean shutdown: lidar_processor")
+    else:
+        rclpy.shutdown()
 
     lidar_proc_node.destroy_node()
-    rclpy.shutdown()
 
 
 

@@ -42,8 +42,7 @@ class DepthProcessorNode(Node):
         # DEPTH IMAGE ALIGNED IN RGB FRAME:
         self.subscription_depth_img_in_color_frame = self.create_subscription(
                 Image,
-                f'/{self.robot_name}/camera/aligned_depth_to_color/image_raw', #real
-                #f'/{self.robot_name}/camera/depth/image_rect_raw', #sim
+                f'/{self.robot_name}/camera/aligned_depth_to_color/image_raw',
                 self.depth_image_in_color_frame_callback,
                 10
             )
@@ -153,11 +152,12 @@ def main(args=None):
     
     try:
         rclpy.spin(depth_proc_node)
-    except KeyboardInterrupt:
-        pass
+    except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
+        print("Clean shutdown: depth_processor")
+    else:
+        rclpy.shutdown()
 
     depth_proc_node.destroy_node()
-    rclpy.shutdown()
 
 
 
