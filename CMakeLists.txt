@@ -17,10 +17,12 @@ find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(image_geometry REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(tf2_eigen REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(nav2_costmap_2d REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(pcl_ros REQUIRED)
+find_package(PCL REQUIRED)
 
 
 
@@ -33,8 +35,10 @@ set(dep_pkgs
     cv_bridge
     nav_msgs
     tf2_ros
+    tf2_eigen
     pluginlib
-    pcl_ros)
+    pcl_ros
+    PCL)
     
 
 if(BUILD_TESTING)

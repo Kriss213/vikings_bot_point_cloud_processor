@@ -15,12 +15,12 @@ void RmSafeObstaclesLayer::onInitialize() {
   auto node = node_.lock(); 
   declareParameter("enabled", rclcpp::ParameterValue(true));
   declareParameter("point_topic", rclcpp::ParameterValue(std::string("/safe_obstacle_points")));
-  declareParameter("inflation_radius", rclcpp::ParameterValue(5));
+  declareParameter("inflation_px", rclcpp::ParameterValue(5));
   declareParameter("buffer_time_limit", rclcpp::ParameterValue(10));
 
   node->get_parameter(name_ + "." + "enabled", enabled_);
   node->get_parameter(name_ + "." + "point_topic", point_topic_);
-  node->get_parameter(name_ + "." + "inflation_radius", inflation_radius_);
+  node->get_parameter(name_ + "." + "inflation_px", inflation_px_);
   node->get_parameter(name_ + "." + "buffer_time_limit", buffer_time_limit_);
   
   // subscribe to topic
@@ -32,6 +32,10 @@ void RmSafeObstaclesLayer::onInitialize() {
 
   // get costmap frame
   costmap_frame_ = layered_costmap_->getGlobalFrameID();
+
+  float resolution = layered_costmap_->getCostmap()->getResolution();
+  resolution = resolution == -1 ? 0.1 : resolution; // if using default, set to 0.1
+  inflation_m_ = inflation_px_ * resolution;
 
   current_ = true;
   
@@ -64,70 +68,33 @@ void RmSafeObstaclesLayer::updateCosts(nav2_costmap_2d::Costmap2D & master_grid,
 
     int current_time = getCurrentTime();
 
-    int map_width = layered_costmap_->getCostmap()->getSizeInCellsX();
-    int map_height = layered_costmap_->getCostmap()->getSizeInCellsY();
-    
-    // a vector of points that will need to be inflated
-    std::vector<std::pair<unsigned int, unsigned int>> inflatable_points;
-
-    // parse stored point clouds
-    RCLCPP_DEBUG(rclcpp::get_logger("nav2_costmap_2d"), "Parsing %ld point clouds from pointcloud time buffer", point_time_buffer_.size());
+    // parse bounding point clouds
     for (auto it=point_time_buffer_.begin(); it!=point_time_buffer_.end();) {
-      //bool increase_it = true;
+
       PointCloud pc_w_timestamp = *it;
-      sensor_msgs::msg::PointCloud2::SharedPtr pc2 = pc_w_timestamp.pointcloud_msg;
+      BoundingPoints pointcloud = pc_w_timestamp.bounding_points;
       int timestamp = pc_w_timestamp.timestamp;
 
-      if (current_time - timestamp > buffer_time_limit_){ //cast to uint to prevent warning
+      if (current_time - timestamp > buffer_time_limit_){
         it = point_time_buffer_.erase(it);
       } else{
         ++it;
-        //  pc2 is in map frame, it needs to be transformed to costmap frame
-        //  because costmap can change its position (like local costmap)
+        // transform bounding point cloud to costmap frame
+        BoundingPoints cloud_in_costmap_frame = transformToFrame(pointcloud, costmap_frame_);
+
+        std::vector<geometry_msgs::msg::Point> convex_polygon = {
+          geometry_msgs::build<geometry_msgs::msg::Point>().x(cloud_in_costmap_frame.left.x-inflation_m_).y(cloud_in_costmap_frame.left.y).z(0),
+          geometry_msgs::build<geometry_msgs::msg::Point>().x(cloud_in_costmap_frame.top.x).y(cloud_in_costmap_frame.top.y+inflation_m_).z(0),
+          geometry_msgs::build<geometry_msgs::msg::Point>().x(cloud_in_costmap_frame.right.x+inflation_m_).y(cloud_in_costmap_frame.right.y).z(0),
+          geometry_msgs::build<geometry_msgs::msg::Point>().x(cloud_in_costmap_frame.bottom.x).y(cloud_in_costmap_frame.bottom.y-inflation_m_).z(0),
+        };
         
-        sensor_msgs::msg::PointCloud2 transformed_cloud_costmap = transformToFrame(pc2, costmap_frame_);
-
-        // get iterators for point cloud
-        sensor_msgs::PointCloud2ConstIterator<float> iter_x(transformed_cloud_costmap, "x");
-        sensor_msgs::PointCloud2ConstIterator<float> iter_y(transformed_cloud_costmap, "y");
-
-        // parse point cloud
-        for (; iter_x != iter_x.end(); ++iter_x, ++iter_y) {
-          unsigned int mx, my; // costmap coordinates
-          if (layered_costmap_->getCostmap()->worldToMap(*iter_x, *iter_y, mx, my)) {
-            std::pair<unsigned int, unsigned int> indice = {mx, my};
-
-            if (inflatable_points_.find(indice) == inflatable_points_.end()) {
-              inflatable_points_.insert(indice); // prevent duplicates
-              master_grid.setCost(mx, my, FREE_SPACE);
-            }
-          }
-        }
+        //clear area
+        master_grid.setConvexPolygonCost(convex_polygon, FREE_SPACE);
       }
+
     }
 
-    for (const auto& map_point : inflatable_points_) {   
-    // inflate to clear around the pixel as well
-      for (int dx=-inflation_radius_; dx <= inflation_radius_; ++dx) {
-        for (int dy=-inflation_radius_; dy <= inflation_radius_; ++dy) {
-          // check if cell is within inflation radius
-          if (std::sqrt(dx*dx + dy*dy) > inflation_radius_) {continue;}
-
-          // new costmap indices:
-          int nx = map_point.first + dx;
-          int ny = map_point.second + dy;
-
-          // check if new indices are within costmap bounds
-          if (nx < 0 || nx > map_width || ny < 0 || ny > map_height) {continue;}
-
-          // clear surrounding pixel
-          master_grid.setCost(nx, ny, FREE_SPACE);
-
-        }
-      }
-    }
-    //clear_indices_.clear();
-    inflatable_points_.clear();
 }
   
 void RmSafeObstaclesLayer::PointCloudCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
@@ -135,28 +102,86 @@ void RmSafeObstaclesLayer::PointCloudCallback(const sensor_msgs::msg::PointCloud
 
     int current_time = getCurrentTime();
 
-    PointCloud pc_w_time ={msg, current_time};
+    // get 4 bounding points
+    BoundingPoints bounding_cloud = getBoundingPointCloud(msg);
+
+    // update point cloud frame
+    point_cloud_frame_ = msg->header.frame_id;
+
+    PointCloud pc_w_time ={bounding_cloud, current_time};
 
     // insert newest cloud at beginning
-    point_time_buffer_.insert(point_time_buffer_.begin(), pc_w_time);
-    // NOTE: if slow, use deque instead
+    point_time_buffer_.push_front(pc_w_time);
 }
 
-sensor_msgs::msg::PointCloud2 RmSafeObstaclesLayer::transformToFrame(const sensor_msgs::msg::PointCloud2::SharedPtr msg, std::string frame) {
-    geometry_msgs::msg::TransformStamped transform_stamped;
-    sensor_msgs::msg::PointCloud2 transformed_cloud;
-    try {
-        transform_stamped = tf_->lookupTransform(frame, msg->header.frame_id, tf2::TimePointZero);
+RmSafeObstaclesLayer::BoundingPoints RmSafeObstaclesLayer::transformToFrame(const BoundingPoints& points, const std::string& target_frame) {
+  geometry_msgs::msg::TransformStamped transform_stamped;
+  RmSafeObstaclesLayer::BoundingPoints transformed_points;
 
+    try {
+        transform_stamped = tf_->lookupTransform(target_frame, point_cloud_frame_, tf2::TimePointZero);
     } catch (tf2::TransformException &ex) {
         RCLCPP_WARN(rclcpp::get_logger("nav2_costmap_2d"), "Transform failed: %s", ex.what());
-        return transformed_cloud; // returns empty cloud
+        return transformed_points; // returns empty BoundingPoints struct
     }
     
-    pcl_ros::transformPointCloud(costmap_frame_, transform_stamped, *msg, transformed_cloud);
-    return transformed_cloud;
+    // Convert the transform to an Eigen::Affine3d matrix
+    Eigen::Affine3d transform_eigen = tf2::transformToEigen(transform_stamped.transform);
+    Eigen::Affine3f transform_eigen_f = transform_eigen.cast<float>(); // Convert to float for PCL compatibility
+
+    transformed_points.top = pcl::transformPoint(points.top, transform_eigen_f);
+    transformed_points.bottom = pcl::transformPoint(points.bottom, transform_eigen_f);
+    transformed_points.left = pcl::transformPoint(points.left, transform_eigen_f);
+    transformed_points.right = pcl::transformPoint(points.right, transform_eigen_f);
+
+    return transformed_points;
+
 }
 
+RmSafeObstaclesLayer::BoundingPoints RmSafeObstaclesLayer::getBoundingPointCloud(const sensor_msgs::msg::PointCloud2::SharedPtr msg){
+    float min_x = std::numeric_limits<float>::max();
+    float max_x = std::numeric_limits<float>::lowest();
+    float min_y = std::numeric_limits<float>::max();
+    float max_y = std::numeric_limits<float>::lowest();
+
+    pcl::PointXYZ left, right, top, bottom;
+    left.z = 0; right.z = 0; top.z = 0; bottom.z = 0;
+
+    sensor_msgs::PointCloud2ConstIterator<float> iter_x(*msg, "x");
+    sensor_msgs::PointCloud2ConstIterator<float> iter_y(*msg, "y");
+
+    // Iterate through the point cloud to find the extreme points
+    for (; iter_x != iter_x.end(); ++iter_x, ++iter_y) {
+        float x = *iter_x;
+        float y = *iter_y;
+
+        if (x < min_x) {
+            min_x = x;
+            left.x = x;
+            left.y = y;
+        }
+        if (x > max_x) {
+            max_x = x;
+            right.x = x;
+            right.y = y;
+        }
+        if (y < min_y) {
+            min_y = y;
+            bottom.x = x;
+            bottom.y = y;
+        }
+        if (y > max_y) {
+            max_y = y;
+            top.x = x;
+            top.y = y;
+        }
+    }
+    BoundingPoints bounding_points = {
+      top, bottom, left, right
+    };
+
+    return bounding_points;
+}
 
 }  // namespace vikings_bot_point_cloud_processor
 

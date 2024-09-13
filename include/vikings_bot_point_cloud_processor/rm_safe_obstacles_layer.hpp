@@ -7,10 +7,15 @@
 #include <iostream>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <nav_msgs/msg/occupancy_grid.hpp>
+#include <geometry_msgs/msg/point.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <tf2_ros/transform_listener.h>
+#include <tf2_eigen/tf2_eigen.hpp>
 #include <pcl_ros/transforms.hpp>
+#include <pcl/point_cloud.h>
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
 
 
 namespace vikings_bot_point_cloud_processor
@@ -35,6 +40,13 @@ public:
 
 	virtual bool isClearable() {return true;}
 
+	struct BoundingPoints {
+		pcl::PointXYZ top;
+		pcl::PointXYZ bottom;
+		pcl::PointXYZ left;
+		pcl::PointXYZ right;
+	};
+
 	/**
 	* @brief  Get current system time in seconds.
    	* @return Current time in seconds as int.
@@ -53,10 +65,33 @@ public:
 	* @param frame Frame to which point cloud needs to be transformed.
    	* @return PointCloud2 message transformed to new frame.
    	*/
-	sensor_msgs::msg::PointCloud2 transformToFrame(const sensor_msgs::msg::PointCloud2::SharedPtr msg, std::string frame);
+	//sensor_msgs::msg::PointCloud2 transformToFrame(const sensor_msgs::msg::PointCloud2::SharedPtr msg, std::string frame);
+	
+	/**
+	* @brief Transform a struct with 4 bounding points to different frame.
+	* @param points A BoundingPoints object.
+	* @param target_frame Frame to which point cloud needs to be transformed.
+   	* @return A BoundingPoints struct transformed to new frame.
+   	*/
+	BoundingPoints transformToFrame(const BoundingPoints& points, const std::string& target_frame);
+
+	/**
+	 * @brief Get 4 bounding points of a point cloud (top, bottom, left right)
+	 * @param msg A PointCloud2 message.
+	 * @return PCL point cloud with only 4 bounding points
+	 */
+	//pcl::PointCloud<pcl::PointXYZ>::Ptr getBoundingPointCloud(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
+	
+	/**
+	 * @brief Get 4 bounding points of a point cloud (top, bottom, left right)
+	 * @param msg A PointCloud2 message.
+	 * @return Bounding points struct
+	 */
+	BoundingPoints getBoundingPointCloud(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
 
 	std::string point_topic_; //PointCloud2 topic for points to clear
-	int inflation_radius_; // clearable point inflation radius in px
+	int inflation_px_; // clearable point inflation px
+	float inflation_m_; //inflation px in meters
 	int buffer_time_limit_; // how long a point should be kept clear even if safe obstacle is out of sight
 
 private:
@@ -73,17 +108,18 @@ private:
 			return hash1 ^ hash2; // Combine the two hash values
 		}
 	};
-
+	
 	struct PointCloud {
-		sensor_msgs::msg::PointCloud2::SharedPtr pointcloud_msg;
+		BoundingPoints bounding_points;
 		int timestamp; //not using message time 
 	};
 
 	std::unordered_set<std::pair<unsigned int, unsigned int>, pair_hash> inflatable_points_;
 	std::string costmap_frame_;
+	std::string point_cloud_frame_;
 
 	// A buffer to store point clouds and time stamps that need to be deleted
-	std::vector<PointCloud> point_time_buffer_;
+	std::deque<PointCloud> point_time_buffer_;
 };
 
 }

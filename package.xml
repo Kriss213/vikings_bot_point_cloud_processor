@@ -18,6 +18,7 @@
   <depend>image_geometry</depend>
   <depend>nav2_costmap_2d</depend>
   <depend>tf2_ros</depend>
+  <depend>tf2_eigen</depend>
   <depend>pluginlib</depend>
   <depend>pcl_ros</depend>
 
