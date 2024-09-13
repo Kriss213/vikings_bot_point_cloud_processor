@@ -15,12 +15,12 @@ void RmSafeObstaclesLayer::onInitialize() {
   auto node = node_.lock(); 
   declareParameter("enabled", rclcpp::ParameterValue(true));
   declareParameter("point_topic", rclcpp::ParameterValue(std::string("/safe_obstacle_points")));
-  declareParameter("inflation_radius", rclcpp::ParameterValue(5));
+  declareParameter("inflation_px", rclcpp::ParameterValue(5));
   declareParameter("buffer_time_limit", rclcpp::ParameterValue(10));
 
   node->get_parameter(name_ + "." + "enabled", enabled_);
   node->get_parameter(name_ + "." + "point_topic", point_topic_);
-  node->get_parameter(name_ + "." + "inflation_radius", inflation_radius_);
+  node->get_parameter(name_ + "." + "inflation_px", inflation_px_);
   node->get_parameter(name_ + "." + "buffer_time_limit", buffer_time_limit_);
   
   // subscribe to topic
@@ -108,10 +108,10 @@ void RmSafeObstaclesLayer::updateCosts(nav2_costmap_2d::Costmap2D & master_grid,
 
     for (const auto& map_point : inflatable_points_) {   
     // inflate to clear around the pixel as well
-      for (int dx=-inflation_radius_; dx <= inflation_radius_; ++dx) {
-        for (int dy=-inflation_radius_; dy <= inflation_radius_; ++dy) {
+      for (int dx=-inflation_px_; dx <= inflation_px_; ++dx) {
+        for (int dy=-inflation_px_; dy <= inflation_px_; ++dy) {
           // check if cell is within inflation radius
-          if (std::sqrt(dx*dx + dy*dy) > inflation_radius_) {continue;}
+          if (std::sqrt(dx*dx + dy*dy) > inflation_px_) {continue;}
 
           // new costmap indices:
           int nx = map_point.first + dx;

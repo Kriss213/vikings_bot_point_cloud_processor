@@ -56,7 +56,7 @@ public:
 	sensor_msgs::msg::PointCloud2 transformToFrame(const sensor_msgs::msg::PointCloud2::SharedPtr msg, std::string frame);
 
 	std::string point_topic_; //PointCloud2 topic for points to clear
-	int inflation_radius_; // clearable point inflation radius in px
+	int inflation_px_; // clearable point inflation radius in px
 	int buffer_time_limit_; // how long a point should be kept clear even if safe obstacle is out of sight
 
 private:
