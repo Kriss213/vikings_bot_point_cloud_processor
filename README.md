@@ -37,8 +37,8 @@ This ROS2 package comes with ROS2 Nav2 Costmap2D plugin that clears points from 
 ### Parameters:
 * ```enabled``` - default: true - Enable/disable plugin.
 * ```point_topic``` - default: '/safe_obstacle_points' - Topic over which removable points are published as PointCloud2. Set this to same topic as default but with correct namespace.
-* ```inflation_radius``` - default: 5 - Clear extra pixels around each clearable point.
-* ```buffer_time_limit``` - default: 15 - How long to keep costmap area clear after safe obstacle is out of sight.
+* ```inflation_px``` - default: 5 - Clear extra pixels around each clearable point.
+* ```buffer_time_limit``` - default: 10 - How long to keep costmap area clear after safe obstacle is out of sight.
 
 ## ROS2 nodes and published topics (listed without robot name in namespace):
 #### ```/data_filter_camera_processor```

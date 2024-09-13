@@ -164,11 +164,12 @@ def main(args=None):
     
     try:
         rclpy.spin(cam_proc_node)
-    except KeyboardInterrupt:
-        pass
+    except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
+        print("Clean shutdown: camera_processor")
+    else:
+        rclpy.shutdown()
 
     cam_proc_node.destroy_node()
-    rclpy.shutdown()
 
 
 
