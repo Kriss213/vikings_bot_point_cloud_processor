@@ -71,8 +71,8 @@ class LidarProcessorNode(Node):
         # find color <--> map transform
         try:
             self.__color_map_transform.find_transform(TF_buffer=self._TF_buffer)
-        except:
-            self.get_logger().warn("Couldn't find transforms from color to map, dropping message")
+        except Exception as e:
+            self.get_logger().warn(f"Couldn't find transforms from {self.__color_map_transform.source_frame} to {self.__color_map_transform.target_frame}, dropping message:{e}")
             return
 
         # Check if necessary values are initialized

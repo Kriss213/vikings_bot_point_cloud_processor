@@ -206,6 +206,13 @@ class FrameTransformer:
         self._translation_inv = None
         self.is_ready = False
 
+    @property
+    def source_frame(self):
+        return self._source_frame
+    @property
+    def target_frame(self):
+        return self._target_frame
+    
     def __from_transform(self, transform_fw:Transform, transform_inv:Transform) -> None:
         """
         Initialize class from geometrey_msgs.msg.Transform
