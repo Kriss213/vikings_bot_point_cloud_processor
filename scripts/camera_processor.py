@@ -9,6 +9,7 @@ from rcl_interfaces.msg import ParameterDescriptor
 from torchvision import transforms
 from torchvision.models.segmentation import deeplabv3_mobilenet_v3_large, DeepLabV3_MobileNet_V3_Large_Weights
 from classes import ImageProcessor, SemanticSegmentation, PointFilter
+import time
 
 class CameraProcessorNode(Node):
     """
@@ -95,6 +96,7 @@ class CameraProcessorNode(Node):
             labels=DeepLabV3_MobileNet_V3_Large_Weights.COCO_WITH_VOC_LABELS_V1.meta['categories'],
             preprocess=preprocess,
         )
+        self.__last_info_pub_time:float = time.time()
         
         # Create subscribers:
         self.subscription_image = self.create_subscription(
@@ -150,8 +152,12 @@ class CameraProcessorNode(Node):
         
         if self.must_publish_filter_mask:
             self.filter_mask_publisher.publish(img_msg)
-        info_board_msg = self.segmentator.visualize(show=self.vis_sem_seg)
-        self.segmentation_info_board_publisher.publish(info_board_msg)
+
+        current_time = time.time()
+        if current_time - self.__last_info_pub_time >= 1: 
+            info_board_msg = self.segmentator.visualize(show=self.vis_sem_seg)
+            self.segmentation_info_board_publisher.publish(info_board_msg)
+            self.__last_info_pub_time = current_time
         
     def RGB_camera_info_callback(self, msg:CameraInfo):
         self.img_proc.set_camera_info(msg, overwrite=False)
