@@ -18,6 +18,7 @@ class CameraProcessorNode(Node):
     def __init__(self):
         super().__init__('CameraProcessorNode')
         self.declare_parameter('robot_name', value='default_robot_name')
+        self.declare_parameter('camera_name', value='camera')
         
         self.declare_parameter(name='safe_classes',
                                value=[-1],
@@ -69,6 +70,7 @@ class CameraProcessorNode(Node):
         self.bounding_box_padding = self.get_parameter('seg_bb_pad').value
 
         self.robot_name = self.get_parameter('robot_name').value
+        self.camera_name = self.get_parameter('camera_name').value
         self.safe_classes = self.get_parameter('safe_classes').value
         
         self.must_publish_filter_mask = self.get_parameter("publish_filter_mask").value
@@ -101,14 +103,14 @@ class CameraProcessorNode(Node):
         # Create subscribers:
         self.subscription_image = self.create_subscription(
             Image,
-            f'/{self.robot_name}/camera/color/image_raw',
+            f'/{self.robot_name}/{self.camera_name}/color/image_raw',
             self.RGB_image_callback,
             10
         )
 
         self.subscription_rgb_camera_info = self.create_subscription(
             CameraInfo,
-            f'/{self.robot_name}/camera/color/camera_info',
+            f'/{self.robot_name}/{self.camera_name}/color/camera_info',
             self.RGB_camera_info_callback,
             10
         )
@@ -117,14 +119,14 @@ class CameraProcessorNode(Node):
         if self.must_publish_filter_mask:
             self.filter_mask_publisher = self.create_publisher(
                 Image,
-                f'/{self.robot_name}/camera/filter_mask',
+                f'/{self.robot_name}/{self.camera_name}/filter_mask',
                 10
             )
 
         # Create a publisher for visualizing semantic segmentation info board
         self.segmentation_info_board_publisher = self.create_publisher(
             Image,
-            f'/{self.robot_name}/camera/color/semantic_segmentation_info_board',
+            f'/{self.robot_name}/{self.camera_name}/color/semantic_segmentation_info_board',
             10
         )
 

@@ -14,8 +14,10 @@ class DepthProcessorNode(Node):
     def __init__(self):
         super().__init__('DepthProcessorNode')
         self.declare_parameter('robot_name', value='default_robot_name')
+        self.declare_parameter('camera_name', value='camera')
 
         self.robot_name = self.get_parameter('robot_name').value
+        self.camera_name = self.get_parameter('camera_name').value
 
         # add params for topics
 
@@ -35,26 +37,26 @@ class DepthProcessorNode(Node):
         # Subscribe to topics
         self.subscription_depth_point_cloud = self.create_subscription(
                 PointCloud2,
-                f'/{self.robot_name}/camera/depth/color/points',
+                f'/{self.robot_name}/{self.camera_name}/depth/color/points',
                 self.depth_point_cloud_callback,
                 10
             )
         # DEPTH IMAGE ALIGNED IN RGB FRAME:
         self.subscription_depth_img_in_color_frame = self.create_subscription(
                 Image,
-                f'/{self.robot_name}/camera/aligned_depth_to_color/image_raw',
+                f'/{self.robot_name}/{self.camera_name}/aligned_depth_to_color/image_raw',
                 self.depth_image_in_color_frame_callback,
                 10
             )
         self.subscription_rgb_camera_info = self.create_subscription(
             CameraInfo,
-            f'/{self.robot_name}/camera/color/camera_info',
+            f'/{self.robot_name}/{self.camera_name}/color/camera_info',
             self.RGB_camera_info_callback,
             10
         )
         self.subscription_filter_mask = self.create_subscription(
             Image,
-            f'/{self.robot_name}/camera/filter_mask',
+            f'/{self.robot_name}/{self.camera_name}/filter_mask',
             self.filter_mask_callback,
             10
         )
@@ -79,7 +81,7 @@ class DepthProcessorNode(Node):
         if self.__color_map_transform == None:
             self.__color_map_transform = FrameTransformer(msg.header.frame_id, "map")
         # find color <--> map transform
-        else:
+        if isinstance(self.__color_map_transform, FrameTransformer):
             try:
                 self.__color_map_transform.find_transform(TF_buffer=self._TF_buffer)
             except Exception as e:

@@ -11,6 +11,10 @@ def generate_launch_description():
         'robot_name',
         default_value='default_robot_name',
         description="Robot name used in topics etc.")
+    camera_name_arg = DeclareLaunchArgument(
+        'camera_name',
+        default_value='camera',
+        description="Camera name.")
     use_sim_time_arg = DeclareLaunchArgument(
         'use_sim_time',
         default_value='false',
@@ -60,6 +64,7 @@ def generate_launch_description():
     # Common arguments
     robot_name = LaunchConfiguration('robot_name')
     use_sim_time = LaunchConfiguration('use_sim_time')
+    camera_name = LaunchConfiguration('camera_name')
 
 
     # Camera processor arguments
@@ -110,6 +115,7 @@ def generate_launch_description():
                 parameters=[{
                     'use_sim_time':use_sim_time,
                     'robot_name':robot_name,
+                    'camera_name':camera_name,
                     'safe_classes':safe_classes,
                     'vis_sem_seg':vis_sem_seg,
                     'seg_bb_type':seg_bb_type,
@@ -132,6 +138,7 @@ def generate_launch_description():
         parameters=[{
             'use_sim_time':use_sim_time,
             'robot_name':robot_name,
+            'camera_name':camera_name,
         }]
     )
 
@@ -145,6 +152,7 @@ def generate_launch_description():
         parameters=[{
             'use_sim_time':use_sim_time,
             'robot_name':robot_name,
+            'camera_name':camera_name,
         }]
     )
       
@@ -153,6 +161,7 @@ def generate_launch_description():
         filter_depth_cam_arg,
         perf_seg_sem_arg,
         robot_name_arg,
+        camera_name_arg,
         use_sim_time_arg,
         safe_classes_arg,
         vis_sem_seg_arg,
@@ -179,13 +188,7 @@ def generate_launch_description():
 #     bus: 6,
 #     car: 7,
 #     cat: 8,
-#     chair: 9,
-#     cow: 10,
-#     diningtable: 11,
-#     dog: 12,
-#     horse: 13,
-#     motorbike: 14,
-#     person: 15,
+#     chair: 9,'camera_name':camera_name,
 #     pottedplant: 16,
 #     sheep: 17,
 #     sofa: 18,

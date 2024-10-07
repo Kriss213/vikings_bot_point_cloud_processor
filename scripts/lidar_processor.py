@@ -18,8 +18,10 @@ class LidarProcessorNode(Node):
     def __init__(self):
         super().__init__('LidarProcessorNode')
         self.declare_parameter('robot_name', value='default_robot_name')
+        self.declare_parameter('camera_name', value='camera')
 
         self.robot_name = self.get_parameter('robot_name').value
+        self.camera_name = self.get_parameter('camera_name').value
 
         self.__lidar_pc_processor = PointCloudProcessor()
 
@@ -43,13 +45,13 @@ class LidarProcessorNode(Node):
         )
         self.subscription_rgb_camera_info = self.create_subscription(
             CameraInfo,
-            f'/{self.robot_name}/camera/color/camera_info',
+            f'/{self.robot_name}/{self.camera_name}/color/camera_info',
             self.RGB_camera_info_callback,
             10
         )
         self.subscription_filter_mask = self.create_subscription(
             Image,
-            f'/{self.robot_name}/camera/filter_mask',
+            f'/{self.robot_name}/{self.camera_name}/filter_mask',
             self.filter_mask_callback,
             10
         )
@@ -69,7 +71,7 @@ class LidarProcessorNode(Node):
         if self.__color_map_transform == None and self.__color_frame:
             self.__color_map_transform = FrameTransformer(self.__color_frame, "map")
         # find color <--> map transform
-        else:
+        if isinstance(self.__color_map_transform, FrameTransformer):
             try:
                 self.__color_map_transform.find_transform(TF_buffer=self._TF_buffer)
             except Exception as e:
