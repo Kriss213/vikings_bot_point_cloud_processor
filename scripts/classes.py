@@ -259,12 +259,12 @@ class FrameTransformer:
         t_fw = TF_buffer.lookup_transform(
                 target_frame=self._target_frame,
                 source_frame=self._source_frame,
-                time=rclpy.time.Time(),
+                time=0,#rclpy.time.Time(),
                 timeout=rclpy.duration.Duration(seconds=timeout))
         t_inv = TF_buffer.lookup_transform(
                 target_frame=self._source_frame,
                 source_frame=self._target_frame,
-                time=rclpy.time.Time(),
+                time=0,#rclpy.time.Time(),
                 timeout=rclpy.duration.Duration(seconds=timeout))
             
         self.__from_transform(transform_fw=t_fw.transform, transform_inv=t_inv.transform)
