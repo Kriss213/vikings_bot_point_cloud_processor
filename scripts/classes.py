@@ -720,7 +720,7 @@ class SemanticSegmentation:
         BOUNDING_BOX_FILLED: cv2.FILLED,
         BOUNDING_BOX_OUTLINE:2
     }
-    def __init__(self, model, weights, labels:list, preprocess:transforms.Compose=None) -> None:
+    def __init__(self, model, weights, labels:list, preprocess:transforms.Compose=None, safe_classes:list=None, threshold:float=0.5, alpha:float=0.5) -> None:
         self.weights = weights
         self.model = model(weights=weights)
         self.model.eval().to(DEVICE)
@@ -742,8 +742,11 @@ class SemanticSegmentation:
 
         self.segmentation_mask = None
         self.probabilities = None
+        self.safe_classes:list = safe_classes if safe_classes != [-1] else []
+        self.threshold:float = threshold
+        self.alpha:float = alpha
 
-        self.__last_visualiztion_frame_time = 0
+        # self.__last_visualiztion_frame_time = 0
 
         #self.overlay_image = Image()
         #self.overlay_image.encoding = '8UC1'
@@ -834,95 +837,32 @@ class SemanticSegmentation:
             self.__window_name = "Semantic segmentation"
             cv2.namedWindow(self.__window_name, cv2.WINDOW_NORMAL)
         
-        # generate colormap and add labels to overlay
-        label_window = np.ones(self.image.shape, dtype=np.uint8) * 255
-        h, w, _ = self.image.shape
-        square_size = 50
-        text_offset = 10
-        row_space = 20
-        max_rows = int(h / (square_size + row_space))
-        column_space = square_size+text_offset + 150
-        
+        image = cv2.cvtColor(self.image,cv2.COLOR_RGB2BGR)
 
-        color_map = np.zeros((self.segmentation_mask.shape[0], self.segmentation_mask.shape[1],3), dtype=np.uint8)
         unique_clases = np.unique(self.segmentation_mask)
-
-        for j, class_idx in enumerate(unique_clases):
-            color_map[self.segmentation_mask == class_idx] = self.__class_colors[class_idx]
-
-            # calculate probability for class.
-            # NOTE: this is calculates the accuarcy for whole class since
-            # semantic segmentation does not distinguish instances of class
+        class_overlay = self.segmentation_mask.copy() #np.zeros_like(self.segmentation_mask)
+        for class_idx in unique_clases:
+            # filter segmentation mask by mean class probabilities
             mean_probability = np.mean(self.probabilities[self.segmentation_mask==class_idx])
+            class_overlay[(class_overlay == class_idx) & (mean_probability < self.threshold)] = 0
 
-            x0 = text_offset + column_space * int( j / max_rows)
-            if int( j / max_rows) == 0:
-                y0 = j * (square_size + row_space)
-            else:
-                y0 = (j-max_rows*int( j / max_rows)) * (square_size + row_space)
-            cv2.rectangle(
-                img=label_window,
-                pt1=(x0, y0),
-                pt2=(x0+square_size, y0+square_size),
-                color=self.__class_colors[class_idx],
-                thickness=-1,
-                )
+        # remove classes that are not in safe_classes
+        class_overlay[~np.isin(class_overlay, self.safe_classes)] = 0
 
-            text = self.labels[class_idx] if self.labels[class_idx] != "__background__" else "background"
-            cv2.putText(
-                img=label_window,
-                text=text,
-                org=(x0 + square_size + text_offset, y0 + int(square_size/4)),
-                fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                fontScale=0.6,
-                color=(0,0,0),
-                thickness=2)
-            first_line_height = cv2.getTextSize(text, fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.6, thickness=2)[0][1]
-            cv2.putText(
-                img=label_window,
-                text=f"{mean_probability:.4f}",
-                org=(x0 + square_size + text_offset, y0 + int(square_size/4) + first_line_height+8),
-                fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                fontScale=0.6,
-                color=(0,0,0),
-                thickness=2
-            )
+        # set correct colors
+        class_overlay_color_map = image.copy()
+        for class_idx in self.safe_classes:
+            class_overlay_color_map[class_overlay==class_idx] = self.__class_colors[class_idx]
 
-        # show which device is being used
-        cv2.putText(
-            img=label_window,
-            text="Device:",
-            org=(w-125, 20),
-            fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-            fontScale=0.6,
-            color=(0,0,0),
-            thickness=2
+        # add overlay
+        #overlay = image.copy()
+        overlay = cv2.addWeighted(
+            src1=image,
+            alpha=1-self.alpha,
+            src2=class_overlay_color_map,
+            beta=self.alpha,
+            gamma=0
         )
-        cv2.putText(
-            img=label_window,
-            text=f"{DEVICE.upper()}",
-            org=(w-55, 20),
-            fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-            fontScale=0.6,
-            color=(127,127,127) if DEVICE == 'cpu' else (0,200,40),
-            thickness=2
-        )
-        
-        # add FPS:
-        fps = int(1 / (time.time() - self.__last_visualiztion_frame_time) )
-        cv2.putText(
-            img=label_window,
-            text=f"FPS: {fps}",
-            org=(w-125, 40),
-            fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-            fontScale=0.6,
-            color=(0,0,0),
-            thickness=2
-        )
-        self.__last_visualiztion_frame_time = time.time()
-
-        # add label window next to image and color map
-        overlay = np.hstack((cv2.cvtColor(self.image,cv2.COLOR_RGB2BGR), color_map, label_window))
 
         ros_2_image = self.cv_bridge.cv2_to_imgmsg(overlay,'bgr8')
         
