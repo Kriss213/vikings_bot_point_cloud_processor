@@ -97,6 +97,9 @@ class CameraProcessorNode(Node):
             weights=DeepLabV3_MobileNet_V3_Large_Weights,
             labels=DeepLabV3_MobileNet_V3_Large_Weights.COCO_WITH_VOC_LABELS_V1.meta['categories'],
             preprocess=preprocess,
+            safe_classes=self.safe_classes,
+            threshold=self.point_filter.threshold,
+            alpha=0.7
         )
         self.__last_info_pub_time:float = time.time()
         
