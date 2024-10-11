@@ -74,7 +74,7 @@ class DepthProcessorNode(Node):
         # invert filter mask
         filter_mask_inv = 1 - self.__filter_mask.image
 
-        self.__depth_image_in_color_frame.apply_filter(filter_mask_inv, remove_above_mean=True)
+        self.__depth_image_in_color_frame.apply_filter(filter_mask_inv)
 
         point_cloud = self.__depth_image_in_color_frame.to_3D(
             z_channel=0,

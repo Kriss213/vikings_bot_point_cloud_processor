@@ -138,12 +138,12 @@ class ImageProcessor:
         
         return np.frombuffer(self._data_raw, dtype=self.__endcodings_dtypes[self._encoding]).reshape(self._height, self._width, self._channels) 
         
-    def apply_filter(self, filter_mask:np.ndarray, remove_above_mean:bool=False) -> None:
+    def apply_filter(self, filter_mask:np.ndarray, d_clip:float=0.30) -> None:
         """
         Filter image based on segmentation model result.
         
+        :param d_clip: Points farther that closest point distance + d_clip will be removed. 
         :param filter_mask: A np.ndarray like image with values 0 (delete) and 1 (keep)
-        :param remove_above_mean: __Assuming a depth image__. If True, keep only points that are closer than mean distance after filtering. This is to minimize noise points behind an object.
 
         :return None:
         """
@@ -157,10 +157,12 @@ class ImageProcessor:
         
         # apply filter
         self.image = filter_mask * self.image
-
-        if remove_above_mean:
-            non_zero_mean = np.mean(self.image[self.image > 0])
-            self.image[self.image > non_zero_mean] = 0
+        
+        # check if filter mask left any points of interest:
+        if np.any(self.image > 0):
+            # remove points farther than closest point + d_clip
+            min_dist = np.min(self.image[self.image>0])
+            self.image[self.image >= min_dist + d_clip/0.001] = 0 
 
     def to_3D(self, z_min:float=0.3, z_max:float=3.0, z_channel:int=0, z_mul:float=1.0) -> 'PointCloudProcessor':
         """
