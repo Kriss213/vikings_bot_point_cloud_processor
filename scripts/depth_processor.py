@@ -19,13 +19,6 @@ class DepthProcessorNode(Node):
         self.robot_name = self.get_parameter('robot_name').value
         self.camera_name = self.get_parameter('camera_name').value
 
-        # add params for topics
-
-        # self.__depth_pc_processor = PointCloudProcessor()
-
-        self.__color_frame = None
-        self.__depth_frame = None
-        self.__depth_color_tranform = None
         self.__color_map_transform = None
 
         self._TF_buffer = Buffer()
@@ -34,13 +27,7 @@ class DepthProcessorNode(Node):
         self.__filter_mask = ImageProcessor()
         self.__depth_image_in_color_frame = ImageProcessor()
 
-        # Subscribe to topics
-        self.subscription_depth_point_cloud = self.create_subscription(
-                PointCloud2,
-                f'/{self.robot_name}/{self.camera_name}/depth/color/points',
-                self.depth_point_cloud_callback,
-                10
-            )
+        # # Subscribe to topics
         # DEPTH IMAGE ALIGNED IN RGB FRAME:
         self.subscription_depth_img_in_color_frame = self.create_subscription(
                 Image,
@@ -67,16 +54,10 @@ class DepthProcessorNode(Node):
             rclpy.qos.qos_profile_sensor_data
         )
 
-        # create a timer for init_transforms
-        self.timer = self.create_timer(0.033, self.__init_transforms) #30 Hz
-
-    def depth_point_cloud_callback(self, msg:PointCloud2):
-        self.__depth_frame = msg.header.frame_id
-        self.destroy_subscription(self.subscription_depth_point_cloud)
 
 
     def depth_image_in_color_frame_callback(self, msg:Image):
-        if not self.__depth_image_in_color_frame.is_camera_info_set or self.__depth_color_tranform == None or not self.__filter_mask.is_image_set:
+        if not self.__depth_image_in_color_frame.is_camera_info_set or not self.__filter_mask.is_image_set:
             return
         if self.__color_map_transform == None:
             self.__color_map_transform = FrameTransformer(msg.header.frame_id, "map")
@@ -96,7 +77,6 @@ class DepthProcessorNode(Node):
         self.__depth_image_in_color_frame.apply_filter(filter_mask_inv, remove_above_mean=True)
 
         point_cloud = self.__depth_image_in_color_frame.to_3D(
-            z_lim=3.0,
             z_channel=0,
             z_mul=0.001
         )
@@ -115,38 +95,12 @@ class DepthProcessorNode(Node):
             self.publisher_safe_object_points.publish(obstacle_points_msg)
 
     def RGB_camera_info_callback(self, msg:CameraInfo):
-        #self.__depth_pc_processor.set_camera_info(msg, overwrite=False)
         self.__depth_image_in_color_frame.set_camera_info(msg, overwrite=False)
-        self.__color_frame = msg.header.frame_id
         self.destroy_subscription(self.subscription_rgb_camera_info)
 
     def filter_mask_callback(self, msg:Image):
         self.__filter_mask.from_img_message(msg)
 
-    def __init_transforms(self) -> bool:
-        """
-        Intitialize transforms. Returns True if transforms are initialized.
-
-        Returns:
-        * `True` if transforms initialized successfully
-        * `False` otherwise
-        """
-        if self.__color_frame and self.__depth_frame:
-            # check if transforms are initialized
-            if self.__depth_color_tranform != None:
-                return True
-            self.__depth_color_tranform = FrameTransformer(source_frame=self.__depth_frame, target_frame=self.__color_frame)
-            
-            try:
-                self.__depth_color_tranform.find_transform(TF_buffer=self._TF_buffer, timeout=1.0)
-                self.get_logger().info("Depth <--> color transforms found!")
-                self.timer.cancel()
-                return True
-            except:
-                self.__depth_color_tranform = None
-                self.get_logger().info("Couldn't find transforms, retrying")
-        
-        return False
 
 def main(args=None):
     rclpy.init(args=args)

@@ -162,11 +162,12 @@ class ImageProcessor:
             non_zero_mean = np.mean(self.image[self.image > 0])
             self.image[self.image > non_zero_mean] = 0
 
-    def to_3D(self, z_lim:float=float('inf'), z_channel:int=0, z_mul:float=1.0) -> 'PointCloudProcessor':
+    def to_3D(self, z_min:float=0.3, z_max:float=3.0, z_channel:int=0, z_mul:float=1.0) -> 'PointCloudProcessor':
         """
         Transform 2D image to 3D points in camera frame using z_channel as Z data.
-
-        :param z_lim: Limit point depth (default=float('inf')).
+        
+        :param z_min: Minimum point depth (default=0.3 m)
+        :param z_max: Maximum point depth (default= 3.0 m).
         :param z_channel: Which channel use as point depth value (default=0).
         :param z_mul: Multiply Z value to change units etc.
 
@@ -180,7 +181,7 @@ class ImageProcessor:
 
 
         # Calculate point coordinates
-        cond = (depth_values!=0) & (depth_values < z_lim)
+        cond = (depth_values!=0) & (depth_values <= z_max) & (depth_values >= z_min)
         depth_vals_pos = depth_values[cond]
         Xc = depth_vals_pos * self.__dx_over_fx[cond]
         Yc = depth_vals_pos * self.__dy_over_fy[cond]
