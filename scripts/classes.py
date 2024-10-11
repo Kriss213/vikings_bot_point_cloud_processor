@@ -138,12 +138,12 @@ class ImageProcessor:
         
         return np.frombuffer(self._data_raw, dtype=self.__endcodings_dtypes[self._encoding]).reshape(self._height, self._width, self._channels) 
         
-    def apply_filter(self, filter_mask:np.ndarray, remove_above_mean:bool=False) -> None:
+    def apply_filter(self, filter_mask:np.ndarray, d_clip:float=0.30) -> None:
         """
         Filter image based on segmentation model result.
         
+        :param d_clip: Points farther that closest point distance + d_clip will be removed. 
         :param filter_mask: A np.ndarray like image with values 0 (delete) and 1 (keep)
-        :param remove_above_mean: __Assuming a depth image__. If True, keep only points that are closer than mean distance after filtering. This is to minimize noise points behind an object.
 
         :return None:
         """
@@ -157,16 +157,19 @@ class ImageProcessor:
         
         # apply filter
         self.image = filter_mask * self.image
+        
+        # check if filter mask left any points of interest:
+        if np.any(self.image > 0):
+            # remove points farther than closest point + d_clip
+            min_dist = np.min(self.image[self.image>0])
+            self.image[self.image >= min_dist + d_clip/0.001] = 0 
 
-        if remove_above_mean:
-            non_zero_mean = np.mean(self.image[self.image > 0])
-            self.image[self.image > non_zero_mean] = 0
-
-    def to_3D(self, z_lim:float=float('inf'), z_channel:int=0, z_mul:float=1.0) -> 'PointCloudProcessor':
+    def to_3D(self, z_min:float=0.3, z_max:float=3.0, z_channel:int=0, z_mul:float=1.0) -> 'PointCloudProcessor':
         """
         Transform 2D image to 3D points in camera frame using z_channel as Z data.
-
-        :param z_lim: Limit point depth (default=float('inf')).
+        
+        :param z_min: Minimum point depth (default=0.3 m)
+        :param z_max: Maximum point depth (default= 3.0 m).
         :param z_channel: Which channel use as point depth value (default=0).
         :param z_mul: Multiply Z value to change units etc.
 
@@ -180,7 +183,7 @@ class ImageProcessor:
 
 
         # Calculate point coordinates
-        cond = (depth_values!=0) & (depth_values < z_lim)
+        cond = (depth_values!=0) & (depth_values <= z_max) & (depth_values >= z_min)
         depth_vals_pos = depth_values[cond]
         Xc = depth_vals_pos * self.__dx_over_fx[cond]
         Yc = depth_vals_pos * self.__dy_over_fy[cond]

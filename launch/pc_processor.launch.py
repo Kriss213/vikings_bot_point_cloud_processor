@@ -147,7 +147,8 @@ def generate_launch_description():
         executable='depth_processor.py',
         namespace=robot_name,
         name='data_filter_depth_processor',
-        condition=IfCondition(OrSubstitution(filter_depth_cam,filter_lidar)),
+        #condition=IfCondition(OrSubstitution(filter_depth_cam,filter_lidar)),
+        condition=IfCondition(filter_depth_cam),
         output='screen',
         parameters=[{
             'use_sim_time':use_sim_time,
