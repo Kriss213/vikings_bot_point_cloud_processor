@@ -11,6 +11,12 @@ from torchvision.models.segmentation import deeplabv3_mobilenet_v3_large, DeepLa
 from classes import ImageProcessor, SemanticSegmentation, PointFilter
 import time
 
+resolution_to_scale = {
+    '1280x720': (640, 360),
+    '640x480': (640, 480),
+    #...
+}
+
 class CameraProcessorNode(Node):
     """
     Processes RGB  image
@@ -83,24 +89,8 @@ class CameraProcessorNode(Node):
         self.point_filter.safe_classes = self.safe_classes
         self.point_filter.threshold = self.get_parameter('filter_prob_threshold').value
         
-
-        # Semantic segmentator initialization
-        preprocess = transforms.Compose([
-                transforms.ToPILImage(),
-                #transforms.Resize((320, 240)),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-            ])
-        
-        self.segmentator = SemanticSegmentation(
-            model=deeplabv3_mobilenet_v3_large,
-            weights=DeepLabV3_MobileNet_V3_Large_Weights,
-            labels=DeepLabV3_MobileNet_V3_Large_Weights.COCO_WITH_VOC_LABELS_V1.meta['categories'],
-            preprocess=preprocess,
-            safe_classes=self.safe_classes,
-            threshold=self.point_filter.threshold,
-            alpha=0.7
-        )
+        self.__segmentator_set = False
+       
         self.__last_info_pub_time:float = time.time()
         
         # Create subscribers:
@@ -133,9 +123,39 @@ class CameraProcessorNode(Node):
             10
         )
 
+    def set_segmentator(self, wh:str):
+        """
+        Set semantic segmentator with correct width and height
+        :param wh: a string like widthxheight
+        """
+        if wh not in resolution_to_scale.keys():
+            wh = wh.split('x')
+            resize = (int(wh[0]), int(wh[1]))
+        resize = resolution_to_scale[wh]
+         # Semantic segmentator initialization
+        preprocess = transforms.Compose([
+                transforms.ToPILImage(),
+                transforms.Resize(resize),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ])
+        
+        self.segmentator = SemanticSegmentation(
+            model=deeplabv3_mobilenet_v3_large,
+            weights=DeepLabV3_MobileNet_V3_Large_Weights,
+            labels=DeepLabV3_MobileNet_V3_Large_Weights.COCO_WITH_VOC_LABELS_V1.meta['categories'],
+            preprocess=preprocess,
+            safe_classes=self.safe_classes,
+            threshold=self.point_filter.threshold,
+            alpha=0.7
+        )
+        self.__segmentator_set = True
 
     # CALLBACK methods
     def RGB_image_callback(self, msg:Image):
+        if not self.__segmentator_set:
+            self.set_segmentator(f'{msg.width}x{msg.height}')
+
         self.color_frame = msg.header.frame_id
         self.img_proc.from_img_message(msg)
 
